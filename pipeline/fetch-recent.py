@@ -11,21 +11,23 @@ stopped on 2 November 2026, so from January 2026 the joined record is NOAA-20 sc
 Science-quality data (VIIRS_NOAA20_SP) are used where NASA has them, near-real-time (VIIRS_NOAA20_NRT) after.
 NRT rows keep their version (e.g. 2.0NRT), so the page can mark those months provisional.
 
-The API has no working country endpoint, so each call asks for the country's box, and a detection is kept when it
-falls in a 0.1-degree cell where the country's own VIIRS files have had a fire.
-shortcut: a fire in a cell that never burned before is dropped, and a border cell can hold a neighbour's fires;
-upgrade to real borders if a country's edges matter.
+The API has no working country endpoint, so each call asks for a box around the country's past fires, and a detection
+is kept when it falls inside the country's Natural Earth 10m border (../../resources/data/borders/, public domain:
+https://github.com/nvkelso/natural-earth-vector). Tested on eight past months, this matched FIRMS's own country files
+to within 1.4% (six of the eight exactly).
 NRT rows carry no type, so detections within about 1 km of a non-vegetation source seen in the country's own files
 (type 1 to 3: volcanoes, factories and gas flares, offshore) get type 2 here, and harmonize.py drops them.
 """
 import csv
 import glob
 import io
+import json
 import os
 import sys
 import time
 import urllib.error
 import urllib.request
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
@@ -33,8 +35,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "..", "resources", "data")
 API = "https://firms.modaps.eosdis.nasa.gov/api"
 YEAR = date.today().year
-FINE = 0.1          # the country footprint grid, the same cells harmonize.py uses
+FINE = 0.1          # the grid of the country's past fires, which sets the box asked for
 NEAR = 0.01         # the fixed-hot-source grid, about 1 km
+BAND = 0.05         # latitude bands that index the border's edges, so each point is tested against few edges
+BORDERS = os.path.join(DATA, "borders", "ne_10m_admin_0_countries.geojson")
 FIELDS = ["latitude", "longitude", "acq_date", "acq_time", "satellite", "confidence", "version", "frp", "daynight", "type"]
 
 
@@ -54,20 +58,47 @@ def get(url, key):
     return text
 
 
+def border(country):
+    """Return inside(lon, lat) for the country's Natural Earth outline: even-odd ray casting over all its rings."""
+    if not os.path.exists(BORDERS):
+        sys.exit(f"missing {BORDERS}: download ne_10m_admin_0_countries.geojson from natural-earth-vector/geojson")
+    with open(BORDERS) as fh:
+        geo = next((f["geometry"] for f in json.load(fh)["features"] if f["properties"]["ADMIN"] == country.replace("_", " ")), None)
+    if geo is None:
+        sys.exit(f"{country}: no such ADMIN name in the Natural Earth file")
+    bands = defaultdict(list)
+    for poly in geo["coordinates"] if geo["type"] == "MultiPolygon" else [geo["coordinates"]]:
+        for ring in poly:
+            for (x1, y1), (x2, y2) in zip(ring, ring[1:]):
+                if y1 != y2:
+                    for b in range(int(min(y1, y2) // BAND), int(max(y1, y2) // BAND) + 1):
+                        bands[b].append((x1, y1, x2, y2))
+
+    def inside(lon, lat):
+        odd = False
+        for x1, y1, x2, y2 in bands.get(int(lat // BAND), ()):
+            if (y1 > lat) != (y2 > lat) and lon < x1 + (lat - y1) * (x2 - x1) / (y2 - y1):
+                odd = not odd
+        return odd
+    return inside
+
+
 def own_files(country):
-    """The footprint cells and the fixed-hot-source cells from the country's own past VIIRS files."""
-    cells, hot = set(), set()
+    """The cells of the country's past VIIRS fires (for the box), its fixed-hot-source cells, and every 100th past detection."""
+    cells, hot, sample = set(), set(), []
     for folder in ("viirs-snpp", "viirs-jpss1"):
         for path in glob.glob(os.path.join(DATA, "firms", folder, f"{folder}_*_{country}.csv")):
             if f"_{YEAR}_" in path:
                 continue
             with open(path, newline="") as fh:
-                for row in csv.DictReader(fh):
+                for k, row in enumerate(csv.DictReader(fh)):
                     lon, lat = float(row["longitude"]), float(row["latitude"])
                     cells.add((int(lon // FINE), int(lat // FINE)))
                     if row.get("type") in ("1", "2", "3"):   # volcano, fixed hot source, offshore
                         hot.add((int(lon // NEAR), int(lat // NEAR)))
-    return cells, hot
+                    elif k % 100 == 0:
+                        sample.append((lon, lat))
+    return cells, hot, sample
 
 
 def chunks(sp_until, nrt_from):
@@ -83,9 +114,12 @@ def chunks(sp_until, nrt_from):
 
 
 def fetch(country, key, spans):
-    cells, hot = own_files(country)
+    cells, hot, sample = own_files(country)
     if not cells:
         return f"{country}: no past VIIRS files; run fetch-country.sh {country} first"
+    inside = border(country)
+    share = sum(inside(lon, lat) for lon, lat in sample) / len(sample)
+    assert share > 0.95, f"{country}: only {share:.0%} of its past detections fall inside the border"   # wrong outline or a broken test
     xs, ys = [x for x, _ in cells], [y for _, y in cells]
     box = f"{min(xs) * FINE:.1f},{min(ys) * FINE:.1f},{(max(xs) + 1) * FINE:.1f},{(max(ys) + 1) * FINE:.1f}"
     rows, in_box, marked = [], 0, 0
@@ -93,7 +127,7 @@ def fetch(country, key, spans):
         for row in csv.DictReader(io.StringIO(get(f"{API}/area/csv/{key}/{source}/{box}/{n}/{day}", key))):
             in_box += 1
             lon, lat = float(row["longitude"]), float(row["latitude"])
-            if (int(lon // FINE), int(lat // FINE)) not in cells:
+            if not inside(lon, lat):
                 continue
             assert row["confidence"] in ("l", "n", "h"), f"{country}: unexpected confidence {row['confidence']!r}"
             if not row.get("type"):

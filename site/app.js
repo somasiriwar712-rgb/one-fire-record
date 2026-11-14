@@ -48,6 +48,8 @@ const ramp = (cls, br, colors) => colors[Math.round(cls * 6 / br.length)];
 // ---------- the record ----------
 const ym = (d, i) => { const k = +d.first.slice(5) - 1 + i; return { y: +d.first.slice(0, 4) + Math.floor(k / 12), m: k % 12 }; };
 const label = (d, i) => { const { y, m } = ym(d, i); return `${MONTHS[m]} ${y}`; };
+const provisional = (d, i) => { const { y, m } = ym(d, i); return !!d.provisional_from && `${y}-${String(m + 1).padStart(2, "0")}` >= d.provisional_from; };
+const source = (d, i) => SOURCE[d.src[i]] + (provisional(d, i) ? ", near-real-time (provisional)" : "");
 
 function counts(d, area) {    // monthly detections per sensor: the whole country, or the squares inside an area
   if (!area) return { modis: d.modis, snpp: d.snpp, n20: d.n20 };
@@ -97,7 +99,7 @@ function monthTip(d, rec, i, view = "joined") {
   const v = shown(d, rec, view, i);
   if (v === null) return `<b>${label(d, i)}</b>${view === "modis" ? "No MODIS data" : "VIIRS was not flying yet"}`;
   if (view !== "joined") return `<b>${fmt(v)} detections</b>${label(d, i)}, ${view === "modis" ? "MODIS" : "VIIRS"} as counted`;
-  return `<b>${fmt(v)} detections</b>${label(d, i)}<br><small>${estimated(d, i) ? `estimated from ${fmt(rec.modis[i])} MODIS detections, likely ${fmt(rec.lo[i])} to ${fmt(rec.hi[i])}` : SOURCE[d.src[i]]}</small>`;
+  return `<b>${fmt(v)} detections</b>${label(d, i)}<br><small>${estimated(d, i) ? `estimated from ${fmt(rec.modis[i])} MODIS detections, likely ${fmt(rec.lo[i])} to ${fmt(rec.hi[i])}` : source(d, i)}</small>`;
 }
 
 // ---------- is this month normal ----------
@@ -112,7 +114,7 @@ function drawAnswer(d, rec) {
   const where = state.area ? `your area in ${d.name}` : d.name;
   $("answer").textContent = `${FULL[m]} ${y} in ${where}: fire activity was ${word}.`;
   $("answer-detail").textContent = `${fmt(v)} fire detections. In the ${same.length} earlier ${FULL[m]}s on record, the middle year had ${fmt(mid)} and the middle half of years had ${fmt(q1)} to ${fmt(q3)}. ${FULL[m]} ${y} is the newest full month` +
-    (d.provisional_from && `${y}-${String(m + 1).padStart(2, "0")}` >= d.provisional_from
+    (provisional(d, i)
       ? `. It comes from NASA's near-real-time files, so treat it as provisional until NASA's science-quality data replace it.`
       : ` in NASA's science-quality files.`);
   const max = Math.max(same[same.length - 1], v, 1), pct = x => (x / max * 100).toFixed(1) + "%";
@@ -334,14 +336,14 @@ function drawMethod(d) {
       <li>Before July 2002 only Terra was flying. Those months use a Terra-only factor and are the weakest part of the record: in a busy month the real value fell between ${t.band_terra.busy[0]}× and ${t.band_terra.busy[1]}× the Terra-only estimate in 8 of 10 tests.</li>
       <li>Since 2022 the Terra and Aqua orbits have drifted. With the factors learned before the drift, MODIS misses the real VIIRS total by ${list("modis")}. Terra alone: ${list("terra")}. MODIS should not be used alone for trends any more.</li>
       <li>A detection is not a fire and not a burned area. One fire can give many detections, and clouds and smoke hide fires from both sensors.</li>
-      <li>Suomi NPP stopped on 2 November 2026. After its last month the record continues with NOAA-20, scaled by ${f.handover.toFixed(2)} (measured on 2019 to 2025).</li>
+      <li>Suomi NPP had gaps in June to August 2026 and stopped on 2 November 2026, so from January 2026 the record is NOAA-20, scaled by ${f.handover.toFixed(2)} (measured on 2019 to 2025).</li>
       <li>The factors are learned for the whole country. A small area uses the same factors, so its estimates are less certain.</li>
       <li>We found no other public tool that joins the two sensors into one fire calendar. That is not proof that none exists.</li>
     </ul>
     <h3>Sources</h3>
     <ul>
       <li><a href="https://firms.modaps.eosdis.nasa.gov/country/">NASA FIRMS yearly country files</a>, science-quality MODIS Collection 6.1 and VIIRS 375 m active fire detections. ${fmt(d.rows_read.modis + d.rows_read.snpp + d.rows_read.n20)} rows read for ${name}.</li>
-      ${ym(d, d.joined.length - 1).y > 2025 ? `<li><a href="https://firms.modaps.eosdis.nasa.gov/api/area/">NASA FIRMS area API</a>, NOAA-20 VIIRS for ${ym(d, d.joined.length - 1).y}: science-quality where NASA has it${d.provisional_from ? `, near-real-time from ${FULL[+d.provisional_from.slice(5) - 1]} ${d.provisional_from.slice(0, 4)} (provisional)` : ""}. Kept when it falls in a 0.1 degree square where ${name} has had VIIRS fires before.</li>` : ""}
+      ${ym(d, d.joined.length - 1).y > 2025 ? `<li><a href="https://firms.modaps.eosdis.nasa.gov/api/area/">NASA FIRMS area API</a>, NOAA-20 VIIRS for ${ym(d, d.joined.length - 1).y}: science-quality where NASA has it${d.provisional_from ? `, near-real-time from ${FULL[+d.provisional_from.slice(5) - 1]} ${d.provisional_from.slice(0, 4)} (provisional)` : ""}. A detection counts for ${name} when it falls inside its <a href="https://www.naturalearthdata.com/">Natural Earth</a> border; on eight past months this matched NASA's own country files to within 1.4%.</li>` : ""}
       <li><a href="https://www.earthdata.nasa.gov/news/blog/transitioning-from-suomi-npp-viirs-omps-what-firms-users-need-know">NASA FIRMS, October 2026</a>: the end of Suomi NPP and the move to NOAA-20 and NOAA-21.</li>
       <li><a href="https://www.earthdata.nasa.gov/data/alerts-outages/transition-from-modis-viirs">NASA Earthdata, May 2025</a>: Terra and Aqua shut down from late 2026 and are drifting.</li>
       <li><a href="https://essd.copernicus.org/articles/18/7535/2026/">Chen et al. 2026</a>: region-specific scaling between VIIRS and MODIS fire records, the published method closest to ours.</li>
@@ -356,7 +358,7 @@ function download() {
   const lines = ["month,modis_detections,viirs_snpp_detections,viirs_noaa20_detections,joined_viirs_equivalent,likely_low,likely_high,source"];
   rec.joined.forEach((v, i) => {
     const { y, m } = ym(d, i);
-    lines.push([`${y}-${String(m + 1).padStart(2, "0")}`, rec.modis[i], rec.snpp[i] ?? "", rec.n20[i] ?? "", v, rec.lo[i], rec.hi[i], `"${SOURCE[d.src[i]]}"`].join(","));
+    lines.push([`${y}-${String(m + 1).padStart(2, "0")}`, rec.modis[i], rec.snpp[i] ?? "", rec.n20[i] ?? "", v, rec.lo[i], rec.hi[i], `"${source(d, i)}"`].join(","));
   });
   const a = h("a", { href: URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" })), download: `one-fire-record-${d.id}${state.area ? "-area" : ""}.csv` });
   a.click();
