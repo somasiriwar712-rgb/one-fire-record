@@ -140,7 +140,8 @@ function drawStrip(d, rec) {
   for (const t of [0.5, 1]) svg.append(s("line", { x1: pad.l, x2: W - pad.r, y1: y(top * t), y2: y(top * t), stroke: "var(--rule)", "stroke-width": 1 }), s("text", { x: pad.l + 2, y: y(top * t) - 3, class: "tick" }, fmt(top * t)));
   const est = [...d.src].map((c, i) => i).filter(i => estimated(d, i));
   if (est.length) svg.append(s("path", { d: "M" + est.map(i => `${x(i).toFixed(1)},${y(rec.hi[i]).toFixed(1)}`).join("L") + "L" + est.reverse().map(i => `${x(i).toFixed(1)},${y(rec.lo[i]).toFixed(1)}`).join("L") + "Z", fill: "var(--ink)", opacity: 0.13 }));
-  svg.append(s("polyline", { points: rec.joined.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" "), fill: "none", stroke: "var(--ink)", "stroke-width": 1.25, "stroke-linejoin": "round" }));
+  svg.append(s("polyline", { points: rec.joined.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" "), fill: "none", stroke: "var(--ink)", "stroke-width": 1.25, "stroke-linejoin": "round", pathLength: 1, class: state.drawIn ? "trace draw" : "trace" }));
+  state.drawIn = false;
   svg.append(s("line", { x1: pad.l, x2: W - pad.r, y1: y(0), y2: y(0), stroke: "var(--ink)", "stroke-width": 1 }));
   const first = +d.first.slice(0, 4);
   for (let yr = Math.ceil((first + 1) / 5) * 5; yr <= ym(d, n - 1).y; yr += 5) {
@@ -290,7 +291,10 @@ function drawMap(d) {
     for (const k of [...totals.keys()].sort((a, b) => d.grid[a][axis] - d.grid[b][axis])) if ((sum += totals[k]) >= all * q) return d.grid[k][axis] * c;
   };
   state.map.invalidateSize();
-  state.map.fitBounds(L.latLngBounds([[edge(1, 0.01), edge(0, 0.01)], [edge(1, 0.99) + c, edge(0, 0.99) + c]]), { padding: [12, 12], animate: false });
+  const bounds = L.latLngBounds([[edge(1, 0.01), edge(0, 0.01)], [edge(1, 0.99) + c, edge(0, 0.99) + c]]);
+  if (state.mapShown && !matchMedia("(prefers-reduced-motion: reduce)").matches) state.map.flyToBounds(bounds, { padding: [12, 12], duration: 0.9 });
+  else state.map.fitBounds(bounds, { padding: [12, 12], animate: false });
+  state.mapShown = true;
   $("map-note").textContent = "Loading this year's fires…";
   $("map-key").replaceChildren();
   getJSON(`data/${d.id}.fires.json`).then(fires => {
@@ -438,6 +442,7 @@ function save(blob, name) {
 }
 function setArea(area) {
   state.area = area;
+  state.drawIn = true;
   if (state.outline) state.outline.remove();
   state.outline = area ? L.rectangle([[area.s, area.w], [area.n, area.e]], { color: "#fbfcf8", weight: 2, fill: false, dashArray: "6 4" }).addTo(state.map) : null;
   $("clear-view").hidden = !area;
@@ -514,8 +519,19 @@ function render() {
   drawYears(d, state.rec);
 }
 async function load(id) {
-  const d = state.cache[id] ??= await getJSON(`data/${id}.json`);
+  document.body.classList.add("busy");
+  let d;
+  try {
+    d = state.cache[id] ??= await getJSON(`data/${id}.json`);
+  } catch {
+    $("answer").textContent = "The fire record could not load.";
+    $("answer-detail").textContent = "Check the connection, then pick the place again.";
+    document.body.classList.remove("busy");
+    return;
+  }
+  document.body.classList.remove("busy");
   state.d = d;
+  state.drawIn = true;
   state.area = null;
   if (state.outline) { state.outline.remove(); state.outline = null; }
   $("clear-view").hidden = true;

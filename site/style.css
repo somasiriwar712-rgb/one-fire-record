@@ -135,3 +135,12 @@ td.est { color: var(--ink-2); font-style: italic; }
 .map.full { position: fixed !important; inset: 0; width: auto; height: 100vh; height: 100dvh; z-index: 3000; border-radius: 0; border: 0; }
 body.map-open { overflow: hidden; }
 .leaflet-popup-content { font-size: 0.8125rem; line-height: 1.4; }
+.purpose { margin: 1rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--grid); color: var(--ink-3); font-size: 0.875rem; max-width: 70ch; }
+/* the one motion: the fire line is drawn like a pen on a recorder when the place or area changes */
+.trace.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: pen 1100ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+@keyframes pen { to { stroke-dashoffset: 0; } }
+main { transition: opacity 200ms ease-out; }
+body.busy main { opacity: 0.55; }
+html { scrollbar-color: var(--rule) var(--desk); }
+@media (pointer: coarse) { .switch span { padding: 0.6rem 0.8rem; } .actions button { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .trace.draw { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; } main { transition: none; } }
