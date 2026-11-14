@@ -73,13 +73,24 @@ FINISH: two inspection rounds at phone and PC size, the detector once, then stop
   </section>
 
   <section>
-    <h2>Your own area</h2>
+    <div class="row">
+      <h2>Where it burned this year</h2>
+      <fieldset class="switch" id="when">
+        <legend class="sr">Which fires to show</legend>
+        <label><input type="radio" name="when" value="30"><span>Last 30 days</span></label>
+        <label><input type="radio" name="when" value="91"><span>3 months</span></label>
+        <label><input type="radio" name="when" value="366" checked><span>Whole year</span></label>
+      </fieldset>
+    </div>
     <p class="note" id="map-note">Move and zoom the map, then use the view as your area. Every chart above redraws for it, with the factors learned for the whole country.</p>
     <div id="map" class="map"></div>
+    <div class="legend" id="map-key"></div>
     <div class="actions">
       <button id="use-view" type="button">Use this view as my area</button>
       <button id="clear-view" type="button" class="quiet" hidden>Back to the whole country</button>
-      <button id="download" type="button" class="quiet">Download this record (CSV)</button>
+      <button id="download" type="button" class="quiet">Download the monthly record (CSV)</button>
+      <button id="download-fires" type="button" class="quiet">Download this year's fires (CSV)</button>
+      <button id="save-map" type="button" class="quiet">Save the map as a picture</button>
     </div>
   </section>
 
@@ -91,7 +102,7 @@ FINISH: two inspection rounds at phone and PC size, the detector once, then stop
 
 <footer class="wrap foot">
   <p>We acknowledge the use of data and/or imagery from NASA's Fire Information for Resource Management System (FIRMS) (<a href="https://earthdata.nasa.gov/firms">https://earthdata.nasa.gov/firms</a>), part of NASA's Land, Atmosphere Near real-time Capability for Earth observations (LANCE) (<a href="https://earthdata.nasa.gov/lance">https://earthdata.nasa.gov/lance</a>) and NASA's Earth Science Data and Information System (ESDIS).</p>
-  <p>Background map: NASA GIBS Blue Marble. Built for the NASA Space Apps Challenge 2026, challenge "Harmonization of MODIS and VIIRS Hot Spots". Not a NASA product; NASA does not endorse it. Code and method were written with an AI assistant (Claude).</p>
+  <p>Maps: Sentinel-2 cloudless 2020 by EOX (contains modified Copernicus Sentinel data), place names from OpenStreetMap, and NASA GIBS Blue Marble. Built for the NASA Space Apps Challenge 2026, challenge "Harmonization of MODIS and VIIRS Hot Spots". Not a NASA product; NASA does not endorse it. Code and method were written with an AI assistant (Claude).</p>
 </footer>
 
 <div id="tip" class="tip" role="status" hidden></div>

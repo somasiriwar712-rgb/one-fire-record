@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "..", "resources", "data", "firms")
 SITE = os.path.join(HERE, "..", "site", "data")
 
+SPOT = 300                      # fire dots for the map are kept on a 1/300-degree grid, about 370 m, one VIIRS pixel
 FINE = 0.1                      # degrees, about 11 km: the grid the page gets, so an area can be summed
 MAX_ENTRIES = 40000             # cell-months kept for the map; a bigger country gets a coarser grid, so its file stays small for a phone
 FOLDERS = {"modis": "modis", "snpp": "viirs-snpp", "n20": "viirs-jpss1"}
@@ -56,6 +57,7 @@ def count_country(country):
     rows_read = defaultdict(int)
     last = {}
     provisional = None
+    fires = {}                                      # the newest year's NOAA-20 fires on a 1/300-degree grid (about one VIIRS pixel): spot -> [last day of year, detections]
     for sensor, folder in FOLDERS.items():
         for path in sorted(glob.glob(os.path.join(DATA, folder, f"{folder}_*_{country}.csv"))):
             year = os.path.basename(path).split("_")[1]
@@ -76,9 +78,13 @@ def count_country(country):
                         months[row["satellite"].lower()][month] += 1
                     cell = (int(float(row["longitude"]) // FINE), int(float(row["latitude"]) // FINE))
                     grid[(sensor, *cell)][month] += 1
+                    if sensor == "n20" and partial:
+                        spot = fires.setdefault((round(float(row["latitude"]) * SPOT), round(float(row["longitude"]) * SPOT)), [0, 0])
+                        spot[0] = max(spot[0], date.fromisoformat(row["acq_date"]).timetuple().tm_yday)
+                        spot[1] += 1
             if partial and newest:
                 last[sensor] = newest
-    return months, grid, dict(rows_read), last, provisional
+    return months, grid, dict(rows_read), last, provisional, fires
 
 
 def coarsen(grid):
@@ -210,7 +216,7 @@ def join(months, last):
 
 
 def run(country):
-    months, grid, rows_read, last, provisional = count_country(country)
+    months, grid, rows_read, last, provisional, fires = count_country(country)
     if "modis" not in months or "snpp" not in months:
         print(f"{country}: no fire files in {DATA} (run fetch-country.sh {country}) or no VIIRS fires at all")
         return False
@@ -231,6 +237,9 @@ def run(country):
     path = os.path.join(SITE, f"{country}.json")
     with open(path, "w") as fh:
         json.dump(out, fh, separators=(",", ":"))
+    if fires:   # per spot: latitude and longitude in 1/SPOT degrees, the last day of year it burned, detections; flat
+        with open(os.path.join(SITE, f"{country}.fires.json"), "w") as fh:
+            json.dump({"from": last["n20"][:4] + "-01", "to": last["n20"], "year": int(last["n20"][:4]), "scale": SPOT, "pts": [v for p in sorted(fires) for v in (*p, *fires[p])]}, fh, separators=(",", ":"))
     t, f = out["test"], out["factor"]
     print(f"{country:12s} factor {f['all']:5.2f} (by month {min(f['by_month']):.1f} to {max(f['by_month']):.1f})  hand-over {f['handover']:.2f}"
           f" | hidden-year miss: monthly factor {t['monthly']['year_err_mean']:4.1f}% (worst {t['monthly']['year_err_max']:.0f}%), fixed {t['fixed']['year_err_mean']:4.1f}% (worst {t['fixed']['year_err_max']:.0f}%)"
@@ -244,7 +253,7 @@ def main():
     done = [c for c in sys.argv[1:] if run(c)]
     if not done:
         sys.exit("nothing written")
-    names = sorted(os.path.basename(p)[:-5] for p in glob.glob(os.path.join(SITE, "*.json")) if not p.endswith("index.json"))
+    names = sorted(os.path.basename(p)[:-5] for p in glob.glob(os.path.join(SITE, "*.json")) if not p.endswith(("index.json", ".fires.json")))
     with open(os.path.join(SITE, "index.json"), "w") as fh:
         json.dump([{"id": n, "name": n.replace("_", " ")} for n in names], fh)
 

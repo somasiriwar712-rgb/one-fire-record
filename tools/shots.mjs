@@ -21,11 +21,11 @@ try {
   const send = (method, params = {}) => new Promise((resolve, reject) => { const n = ++id; waiting.set(n, m => (m.error ? reject(new Error(`${method}: ${m.error.message}`)) : resolve(m.result))); ws.send(JSON.stringify({ id: n, method, params })); });
   const evaluate = async expr => (await send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true })).result.value;
 
-  await send("Emulation.setDeviceMetricsOverride", { width: +width, height: 900, deviceScaleFactor: 2, mobile: +width < 600 });
+  await send("Emulation.setDeviceMetricsOverride", { width: +width, height: 900, deviceScaleFactor: +(process.env.DPR || 2), mobile: +width < 600 });
   await send("Page.enable");
   await send("Page.navigate", { url });
   for (let i = 0; i < 60 && !(await evaluate("!!(window.state && state.rec && document.querySelector('#calendar button'))")); i++) await sleep(250);
-  await sleep(2500);   // map tiles
+  await sleep(4500);   // map tiles and fire dots
   await evaluate("document.querySelector('.top').style.position = 'static'");   // the sticky bar would cover each part
   for (const t of targets) {
     const [selector, name] = t.split("=");

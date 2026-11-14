@@ -8,7 +8,7 @@ const FIRE = [1, 2, 3, 4, 5, 6, 7].map(k => `var(--fire-${k})`);
 const BLUE = [1, 2, 3, 4, 5, 6, 7].map(k => `var(--blue-${k})`);
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString("en");
-const state = { d: null, rec: null, view: "joined", area: null, cache: {}, map: null, layers: null };
+const state = { d: null, rec: null, view: "joined", area: null, cache: {}, map: null, fires: null, dots: null, when: "366" };
 
 // ---------- small builders ----------
 function h(tag, attrs = {}, ...kids) {
@@ -274,12 +274,9 @@ function drawYears(d, rec) {
 // ---------- map and area ----------
 function drawMap(d) {
   if (!window.L) return;
-  if (!state.map) {
-    state.map = L.map("map", { scrollWheelZoom: false, minZoom: 2 });
-    L.tileLayer("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg", { maxNativeZoom: 8, maxZoom: 11, attribution: "NASA GIBS, Blue Marble" }).addTo(state.map);
-    state.layers = L.layerGroup().addTo(state.map);
-  }
-  state.layers.clearLayers();
+  if (!state.map) makeMap();
+  state.fires = null;
+  state.dots?.remove();
   const f = d.factor, c = d.coarse_deg, totals = d.grid.map(([, , modis, snpp, n20]) => {
     let t = 0;
     for (const i in modis) if (estimated(d, i)) t += modis[i] * f.by_month[ym(d, +i).m];
@@ -287,21 +284,157 @@ function drawMap(d) {
     for (const i in n20) if (d.src[i] === "n") t += n20[i] * f.handover;
     return t;
   });
-  const br = breaks(totals), all = totals.reduce((a, b) => a + b, 0);
+  const all = totals.reduce((a, b) => a + b, 0);
   const edge = (axis, q) => {   // the edge below which a share q of the fire lies, so a far island with little fire does not zoom the map out
     let sum = 0;
     for (const k of [...totals.keys()].sort((a, b) => d.grid[a][axis] - d.grid[b][axis])) if ((sum += totals[k]) >= all * q) return d.grid[k][axis] * c;
   };
-  const bounds = L.latLngBounds([[edge(1, 0.01), edge(0, 0.01)], [edge(1, 0.99) + c, edge(0, 0.99) + c]]);
-  d.grid.forEach(([x, y], k) => {
-    if (!totals[k]) return;
-    const b = [[y * c, x * c], [(y + 1) * c, (x + 1) * c]];
-    const color = getComputedStyle(document.documentElement).getPropertyValue(`--fire-${Math.round(classOf(totals[k], br) * 6 / br.length) + 1}`).trim();
-    L.rectangle(b, { stroke: false, fillColor: color, fillOpacity: 0.9 }).bindTooltip(`${fmt(totals[k])} detections since ${d.first.slice(0, 4)}`).addTo(state.layers);
-  });
   state.map.invalidateSize();
-  state.map.fitBounds(bounds, { padding: [12, 12], animate: false });
-  $("map-note").textContent = `Move and zoom the map, then use the view as your area. Every chart above redraws for it, with the factors learned for the whole country. Each square is about ${fmt(c * 111)} km wide; darker means more fire since ${d.first.slice(0, 4)}.`;
+  state.map.fitBounds(L.latLngBounds([[edge(1, 0.01), edge(0, 0.01)], [edge(1, 0.99) + c, edge(0, 0.99) + c]]), { padding: [12, 12], animate: false });
+  $("map-note").textContent = "Loading this year's fires…";
+  $("map-key").replaceChildren();
+  getJSON(`data/${d.id}.fires.json`).then(fires => {
+    if (state.d !== d) return;   // the place changed while the file loaded
+    state.fires = fires;
+    // ages count back from the last day of the newest month in the data, not from today
+    const [y, m] = fires.to.split("-").map(Number);
+    fires.last = Math.round((Date.UTC(y, m, 0) - Date.UTC(y, 0, 0)) / 864e5);
+    drawFires();
+  }).catch(() => { $("map-note").textContent = "This year's fires could not load. The charts above are not affected."; });
+}
+
+// the satellite picture, place names, the fires, and a full-screen button
+function makeMap() {
+  const map = state.map = L.map("map", { scrollWheelZoom: false, minZoom: 2, maxZoom: 16, zoomSnap: 0.5 });
+  const sharp = L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg",
+    { maxNativeZoom: 15, maxZoom: 16, crossOrigin: true, attribution: '<a href="https://s2maps.eu">Sentinel-2 cloudless</a> by EOX' }).addTo(map);
+  const nasa = L.tileLayer("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
+    { maxNativeZoom: 8, maxZoom: 16, crossOrigin: true, attribution: "NASA GIBS Blue Marble" });
+  map.createPane("names").style.zIndex = 450;   // place names above the fires
+  map.getPane("names").style.pointerEvents = "none";
+  const names = L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/overlay_bright_3857/default/g/{z}/{y}/{x}.png",
+    { pane: "names", maxNativeZoom: 15, maxZoom: 16, crossOrigin: true, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+  L.control.layers({ "Satellite, sharp": sharp, "NASA Blue Marble": nasa }, { "Place names": names }, { position: "topright" }).addTo(map);
+  const Full = L.Control.extend({
+    onAdd() {
+      const b = L.DomUtil.create("button", "map-full-button");
+      b.type = "button"; b.textContent = "Full screen"; b.setAttribute("aria-pressed", "false");
+      L.DomEvent.disableClickPropagation(b);
+      b.addEventListener("click", () => toggleFull(b));
+      return b;
+    },
+  });
+  new Full({ position: "topleft" }).addTo(map);
+  map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
+  addEventListener("keydown", e => { if (e.key === "Escape" && document.body.classList.contains("map-open")) toggleFull(document.querySelector(".map-full-button")); });
+  map.on("click", e => {   // the nearest fire within a finger's width
+    const fires = state.fires;
+    if (!fires) return;
+    const at = map.latLngToContainerPoint(e.latlng), since = fires.last - +state.when, sc = fires.scale;
+    let best = -1, bestD = 22 * 22;
+    for (let k = 0; k < fires.pts.length; k += 4) {
+      if (fires.pts[k + 2] <= since) continue;
+      const p = map.latLngToContainerPoint([fires.pts[k] / sc, fires.pts[k + 1] / sc]), dd = (p.x - at.x) ** 2 + (p.y - at.y) ** 2;
+      if (dd < bestD) { bestD = dd; best = k; }
+    }
+    if (best < 0) return;
+    const [lat, lon, day, n] = fires.pts.slice(best, best + 4).map((v, i) => i < 2 ? v / sc : v);
+    L.popup().setLatLng([lat, lon]).setContent(`<b>Fire seen ${dayLabel(fires.year, day)}</b><br>${n === 1 ? "1 detection" : `${n} detections`} here this year, by NOAA-20 VIIRS<br>${lat.toFixed(3)}°, ${lon.toFixed(3)}°`).openOn(map);
+  });
+}
+function toggleFull(button) {
+  const open = document.body.classList.toggle("map-open");
+  $("map").classList.toggle("full", open);
+  button.textContent = open ? "Close full screen" : "Full screen";
+  button.setAttribute("aria-pressed", String(open));
+  state.map.invalidateSize();
+}
+const dayLabel = (year, day) => new Date(Date.UTC(year, 0, day)).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+
+// fires older than this many days fade from yellow to red; the newest are brightest, as on NASA's fire maps
+const AGES = [[7, "rgba(255, 246, 180, 0.95)", "last 7 days of data"], [30, "rgba(255, 196, 60, 0.85)", "8 to 30 days before"], [91, "rgba(255, 120, 30, 0.7)", "1 to 3 months before"], [Infinity, "rgba(220, 45, 25, 0.55)", "earlier in the year"]];
+function drawFires() {
+  const d = state.d, fires = state.fires;
+  if (!fires) return;
+  state.dots?.remove();
+  state.dots = new FireDots({ fires, since: fires.last - +state.when, attribution: '<a href="https://firms.modaps.eosdis.nasa.gov/">NASA FIRMS</a>' }).addTo(state.map);
+  let shown = 0;
+  for (let k = 2; k < fires.pts.length; k += 4) if (fires.pts[k] > fires.last - +state.when) shown++;
+  const until = dayLabel(fires.year, fires.last);
+  $("map-note").textContent = `${fmt(shown)} places where NASA's NOAA-20 satellite saw fire in ${d.name}${state.when === "366" ? ` in ${fires.year}` : `, ${state.when === "30" ? "30 days" : "3 months"} up to ${until}`}. Each dot is one satellite pixel, about 370 m. Tap a dot for its date. Data run to ${until}; the last three months are provisional. Zoom in to your district and press "Use this view as my area" to redraw every chart for it.`;
+  $("map-key").replaceChildren(...AGES.filter(([days], i) => i === 0 || AGES[i - 1][0] < +state.when).map(([, color, text]) => h("span", { class: "key" }, h("i", { class: "dot", style: `background:${color.replace(/[\d.]+\)$/, "1)")}` }), text)));
+}
+
+// the fires as dots on canvas tiles: one canvas per map tile, so 100,000 dots stay smooth on a phone
+const FireDots = window.L && L.GridLayer.extend({
+  initialize(options) {
+    L.GridLayer.prototype.initialize.call(this, { ...options, maxZoom: 16 });
+    const { pts, scale: sc } = options.fires, n = pts.length / 4;
+    // positions in map pixels at zoom 0, oldest first so the newest fires are drawn on top
+    const order = [...Array(n).keys()].filter(i => pts[i * 4 + 2] > options.since).sort((a, b) => pts[a * 4 + 2] - pts[b * 4 + 2]);
+    this.xy = new Float64Array(order.length * 2); this.age = new Uint16Array(order.length);
+    order.forEach((i, j) => {
+      const p = L.CRS.EPSG3857.latLngToPoint(L.latLng(pts[i * 4] / sc, pts[i * 4 + 1] / sc), 0);
+      this.xy[j * 2] = p.x; this.xy[j * 2 + 1] = p.y; this.age[j] = options.fires.last - pts[i * 4 + 2];
+    });
+  },
+  createTile(coords) {
+    const size = this.getTileSize(), t = document.createElement("canvas"), dpr = Math.min(2, window.devicePixelRatio || 1);
+    t.width = size.x * dpr; t.height = size.y * dpr;
+    const g = t.getContext("2d"), scale = 2 ** coords.z, x0 = coords.x * size.x, y0 = coords.y * size.y, { xy, age } = this;
+    // a fire is drawn about the size of a VIIRS pixel (375 m), never smaller than a visible speck;
+    // overlapping fires add light, so a lone fire is a speck and a burning region glows
+    const r = Math.max(1.1, 0.0034 * 256 * scale / 360 * 0.5);
+    g.scale(dpr, dpr);
+    g.globalCompositeOperation = "lighter";
+    for (let j = 0; j < age.length; j++) {
+      const x = xy[j * 2] * scale - x0, y = xy[j * 2 + 1] * scale - y0;
+      if (x < -r || y < -r || x > size.x + r || y > size.y + r) continue;
+      const color = AGES.find(([days]) => age[j] < days)[1];
+      if (color !== g.fillStyle) g.fillStyle = color;   // dots come oldest first, so the colour changes only a few times
+      if (r < 1.6) g.fillRect(x - r, y - r, 2 * r, 2 * r);
+      else { g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill(); }
+    }
+    return t;
+  },
+});
+
+function downloadFires() {
+  const d = state.d, fires = state.fires;
+  if (!fires) return;
+  const lines = ["latitude,longitude,last_seen,detections_this_year"];
+  for (let k = 0; k < fires.pts.length; k += 4) {
+    const day = fires.pts[k + 2];
+    if (day <= fires.last - +state.when) continue;
+    lines.push([(fires.pts[k] / fires.scale).toFixed(4), (fires.pts[k + 1] / fires.scale).toFixed(4), new Date(Date.UTC(fires.year, 0, day)).toISOString().slice(0, 10), fires.pts[k + 3]].join(","));
+  }
+  save(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }), `${d.id}-fires-${fires.year}.csv`);
+}
+// the map as one picture: every visible tile and fire canvas drawn where it sits on screen
+async function saveMap() {
+  const box = $("map").getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const out = document.createElement("canvas");
+  out.width = box.width * dpr; out.height = box.height * dpr;
+  const g = out.getContext("2d");
+  g.scale(dpr, dpr);
+  g.fillStyle = "#0d2343"; g.fillRect(0, 0, box.width, box.height);
+  const parts = [...$("map").querySelectorAll(".leaflet-tile-pane img.leaflet-tile-loaded, .leaflet-tile-pane canvas, .leaflet-pane[class*='names'] img.leaflet-tile-loaded")];
+  for (const el of parts) {
+    const r = el.getBoundingClientRect();
+    if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
+    if (el.tagName === "CANVAS") g.globalCompositeOperation = "lighter";
+    try { g.drawImage(el, r.left - box.left, r.top - box.top, r.width, r.height); } catch { /* a tile without permission to copy is left out */ }
+    g.globalCompositeOperation = "source-over";
+  }
+  g.fillStyle = "rgba(20, 24, 31, 0.7)"; g.fillRect(0, box.height - 22, box.width, 22);
+  g.fillStyle = "#fff"; g.font = "12px system-ui, sans-serif";
+  g.fillText(`${state.d.name}: fires seen by NASA NOAA-20 VIIRS (FIRMS). Map: Sentinel-2 cloudless by EOX, OpenStreetMap.`, 8, box.height - 7);
+  out.toBlob(b => b && save(b, `${state.d.id}-fire-map.png`), "image/png");
+}
+function save(blob, name) {
+  const a = h("a", { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 function setArea(area) {
   state.area = area;
@@ -350,7 +483,7 @@ function drawMethod(d) {
       <li><a href="https://www.earthdata.nasa.gov/data/alerts-outages/transition-from-modis-viirs">NASA Earthdata, May 2025</a>: Terra and Aqua shut down from late 2026 and are drifting.</li>
       <li><a href="https://essd.copernicus.org/articles/18/7535/2026/">Chen et al. 2026</a>: region-specific scaling between VIIRS and MODIS fire records, the published method closest to ours.</li>
       <li><a href="https://doi.org/10.1016/j.rse.2016.02.054">Giglio et al. 2016</a> and <a href="https://doi.org/10.1016/j.rse.2013.12.008">Schroeder et al. 2014</a>: the MODIS and VIIRS fire algorithms.</li>
-      <li>Country outlines are not drawn; the map squares are our own 0.1 degree grid.</li>
+      <li>Map: the fire dots are this year's NOAA-20 detections, rounded to 0.01 degree (about 1 km). The area tool sums our own 0.1 degree squares.</li>
     </ul>`;
 }
 
@@ -362,9 +495,7 @@ function download() {
     const { y, m } = ym(d, i);
     lines.push([`${y}-${String(m + 1).padStart(2, "0")}`, rec.modis[i], rec.snpp[i] ?? "", rec.n20[i] ?? "", v, rec.lo[i], rec.hi[i], `"${source(d, i)}"`].join(","));
   });
-  const a = h("a", { href: URL.createObjectURL(new Blob([lines.join("\n") + "\n"], { type: "text/csv" })), download: `one-fire-record-${d.id}${state.area ? "-area" : ""}.csv` });
-  a.click();
-  URL.revokeObjectURL(a.href);
+  save(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }), `one-fire-record-${d.id}${state.area ? "-area" : ""}.csv`);
 }
 
 // ---------- wiring ----------
@@ -408,6 +539,9 @@ async function start() {
   $("use-view").addEventListener("click", () => { if (!state.map) return; const b = state.map.getBounds(); setArea({ w: b.getWest(), e: b.getEast(), s: b.getSouth(), n: b.getNorth() }); });
   $("clear-view").addEventListener("click", () => setArea(null));
   $("download").addEventListener("click", download);
+  $("download-fires").addEventListener("click", downloadFires);
+  $("save-map").addEventListener("click", saveMap);
+  $("when").addEventListener("change", e => { state.when = e.target.value; drawFires(); });
   calendarEvents();
   addEventListener("pointerdown", e => { if (!e.target.closest("#calendar, svg")) hideTips(); });
   addEventListener("scroll", hideTips, { passive: true });
