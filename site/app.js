@@ -86,6 +86,8 @@ function shown(d, rec, view, i) {   // the value a view shows for month i, or nu
 }
 
 // ---------- tooltip ----------
+const mouseOnly = f => e => { if (e.pointerType !== "touch") f(e); };   // a finger lifting is not "leaving": on a phone the tip stays until the next tap
+function hideTips() { tip(); document.querySelectorAll(".cross").forEach(c => c.setAttribute("visibility", "hidden")); }
 function tip(target, html) {
   const t = $("tip");
   if (!html) { t.hidden = true; return; }
@@ -148,7 +150,7 @@ function drawStrip(d, rec) {
   // the tape: one channel per sensor, thick where that sensor writes the record
   const firstOf = c => d.src.indexOf(c), lastOf = c => d.src.lastIndexOf(c);
   const channels = [
-    ["MODIS (Terra, Aqua from 2002)", "var(--modis)", 0, rec.modis.length - 1, 0, Math.max(lastOf("m"), lastOf("t"))],
+    ["MODIS (Terra, Aqua from 2002)", "var(--modis)", 0, rec.modis.findLastIndex(v => v !== null), 0, Math.max(lastOf("m"), lastOf("t"))],
     ["VIIRS Suomi NPP", "var(--viirs)", rec.snpp.findIndex(v => v !== null), rec.snpp.findLastIndex(v => v !== null), firstOf("s"), lastOf("s")],
     ["VIIRS NOAA-20", "var(--n20)", rec.n20.findIndex(v => v !== null), rec.n20.findLastIndex(v => v !== null), firstOf("n"), lastOf("n")],
   ];
@@ -160,7 +162,7 @@ function drawStrip(d, rec) {
     const right = x(from) > W * 0.6;
     svg.append(s("text", { x: right ? x(to) : x(from), y: cy - 7, class: "label", "text-anchor": right ? "end" : "start" }, name));
   });
-  const cross = s("line", { y1: pad.t, y2: pad.t + plotH, stroke: "var(--pen)", "stroke-width": 1, visibility: "hidden" });
+  const cross = s("line", { class: "cross", y1: pad.t, y2: pad.t + plotH, stroke: "var(--pen)", "stroke-width": 1, visibility: "hidden" });
   const hit = s("rect", { x: 0, y: 0, width: W, height: pad.t + plotH + 20, fill: "transparent" });
   const move = e => {
     const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.round(((e.clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * (n - 1))));
@@ -169,7 +171,7 @@ function drawStrip(d, rec) {
   };
   hit.addEventListener("pointermove", move);
   hit.addEventListener("pointerdown", move);
-  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); tip(); });
+  hit.addEventListener("pointerleave", mouseOnly(hideTips));
   svg.append(cross, hit);
   box.replaceChildren(svg);
 }
@@ -212,7 +214,7 @@ function calendarEvents() {
   const show = e => { const b = cell(e); b ? tip(b, monthTip(state.d, state.rec, +b.dataset.i, state.view)) : tip(); };
   cal.addEventListener("pointerover", show);
   cal.addEventListener("focusin", show);
-  cal.addEventListener("pointerleave", () => tip());
+  cal.addEventListener("pointerleave", mouseOnly(() => tip()));
   cal.addEventListener("focusout", () => tip());
   cal.addEventListener("keydown", e => {
     const step = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -12, ArrowDown: 12 }[e.key], b = cell(e);
@@ -239,7 +241,7 @@ function bars(box, items, { labelEvery = 1, legend }) {   // items: {name, v, lo
     if (it === best) svg.append(s("text", { x: Math.min(W - 30, Math.max(30, cx)), y: y(Math.max(it.v, it.hi ?? 0)) - 5, "text-anchor": "middle", class: "label tick" }, fmt(it.v)));
     g.addEventListener("pointerenter", () => tip(g, it.tip));
     g.addEventListener("focus", () => tip(g, it.tip));
-    g.addEventListener("pointerleave", () => tip());
+    g.addEventListener("pointerleave", mouseOnly(() => tip()));
     g.addEventListener("blur", () => tip());
     svg.append(g);
   });
@@ -273,7 +275,7 @@ function drawYears(d, rec) {
 function drawMap(d) {
   if (!window.L) return;
   if (!state.map) {
-    state.map = L.map("map", { preferCanvas: true, scrollWheelZoom: false, minZoom: 2 });
+    state.map = L.map("map", { scrollWheelZoom: false, minZoom: 2 });
     L.tileLayer("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg", { maxNativeZoom: 8, maxZoom: 11, attribution: "NASA GIBS, Blue Marble" }).addTo(state.map);
     state.layers = L.layerGroup().addTo(state.map);
   }
@@ -407,6 +409,8 @@ async function start() {
   $("clear-view").addEventListener("click", () => setArea(null));
   $("download").addEventListener("click", download);
   calendarEvents();
+  addEventListener("pointerdown", e => { if (!e.target.closest("#calendar, svg")) hideTips(); });
+  addEventListener("scroll", hideTips, { passive: true });
   let width = innerWidth;
   addEventListener("resize", () => { if (innerWidth !== width) { width = innerWidth; render(); state.map?.invalidateSize(); } });
   await load(select.value);
