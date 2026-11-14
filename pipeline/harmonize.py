@@ -48,12 +48,14 @@ def count_country(country):
 
     Series: terra, aqua, modis (Terra and Aqua together), snpp, n20.
     Grid: {(series, x, y): {"YYYY-MM": detections}} for modis, snpp and n20 on FINE-degree cells.
-    Also returns the last month each sensor's files cover: a yearly file is a whole year, fires or not.
+    Also returns the last month each sensor's files cover (a yearly file is a whole year, fires or not),
+    and the first month with near-real-time rows (fetch-recent.py), which the page calls provisional.
     """
     months = defaultdict(lambda: defaultdict(int))
     grid = defaultdict(lambda: defaultdict(int))
     rows_read = defaultdict(int)
     last = {}
+    provisional = None
     for sensor, folder in FOLDERS.items():
         for path in sorted(glob.glob(os.path.join(DATA, folder, f"{folder}_*_{country}.csv"))):
             year = os.path.basename(path).split("_")[1]
@@ -67,6 +69,8 @@ def count_country(country):
                         continue
                     month = row["acq_date"][:7]
                     newest = max(newest, month)
+                    if "NRT" in row.get("version", "") and (provisional is None or month < provisional):
+                        provisional = month
                     months[sensor][month] += 1
                     if sensor == "modis":
                         months[row["satellite"].lower()][month] += 1
@@ -74,7 +78,7 @@ def count_country(country):
                     grid[(sensor, *cell)][month] += 1
             if partial and newest:
                 last[sensor] = newest
-    return months, grid, dict(rows_read), last
+    return months, grid, dict(rows_read), last, provisional
 
 
 def coarsen(grid):
@@ -206,7 +210,7 @@ def join(months, last):
 
 
 def run(country):
-    months, grid, rows_read, last = count_country(country)
+    months, grid, rows_read, last, provisional = count_country(country)
     if "modis" not in months or "snpp" not in months:
         print(f"{country}: no fire files in {DATA} (run fetch-country.sh {country}) or no VIIRS fires at all")
         return False
@@ -221,7 +225,7 @@ def run(country):
     cells = defaultdict(lambda: {"modis": {}, "snpp": {}, "n20": {}})
     for (sensor, x, y), per_month in grid.items():
         cells[(x, y)][sensor] = {index[m]: n for m, n in per_month.items() if m in index}
-    out.update(id=country, name=country.replace("_", " "), rows_read=rows_read, coarse_deg=coarse_deg,
+    out.update(id=country, name=country.replace("_", " "), rows_read=rows_read, coarse_deg=coarse_deg, provisional_from=provisional,
                grid=[[x, y, c["modis"], c["snpp"], c["n20"]] for (x, y), c in sorted(cells.items())])
     os.makedirs(SITE, exist_ok=True)
     path = os.path.join(SITE, f"{country}.json")

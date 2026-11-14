@@ -111,7 +111,10 @@ function drawAnswer(d, rec) {
   const [q1, mid, q3] = [0.25, 0.5, 0.75].map(q => Math.round(quantile(same, q)));
   const where = state.area ? `your area in ${d.name}` : d.name;
   $("answer").textContent = `${FULL[m]} ${y} in ${where}: fire activity was ${word}.`;
-  $("answer-detail").textContent = `${fmt(v)} fire detections. In the ${same.length} earlier ${FULL[m]}s on record, the middle year had ${fmt(mid)} and the middle half of years had ${fmt(q1)} to ${fmt(q3)}. ${FULL[m]} ${y} is the newest full month in NASA's science-quality files.`;
+  $("answer-detail").textContent = `${fmt(v)} fire detections. In the ${same.length} earlier ${FULL[m]}s on record, the middle year had ${fmt(mid)} and the middle half of years had ${fmt(q1)} to ${fmt(q3)}. ${FULL[m]} ${y} is the newest full month` +
+    (d.provisional_from && `${y}-${String(m + 1).padStart(2, "0")}` >= d.provisional_from
+      ? `. It comes from NASA's near-real-time files, so treat it as provisional until NASA's science-quality data replace it.`
+      : ` in NASA's science-quality files.`);
   const max = Math.max(same[same.length - 1], v, 1), pct = x => (x / max * 100).toFixed(1) + "%";
   const range = $("range");
   range.setAttribute("aria-label", `Range of ${FULL[m]} values: lowest ${fmt(same[0])}, middle ${fmt(mid)}, highest ${fmt(same[same.length - 1])}; this year ${fmt(v)}.`);
@@ -338,6 +341,7 @@ function drawMethod(d) {
     <h3>Sources</h3>
     <ul>
       <li><a href="https://firms.modaps.eosdis.nasa.gov/country/">NASA FIRMS yearly country files</a>, science-quality MODIS Collection 6.1 and VIIRS 375 m active fire detections. ${fmt(d.rows_read.modis + d.rows_read.snpp + d.rows_read.n20)} rows read for ${name}.</li>
+      ${ym(d, d.joined.length - 1).y > 2025 ? `<li><a href="https://firms.modaps.eosdis.nasa.gov/api/area/">NASA FIRMS area API</a>, NOAA-20 VIIRS for ${ym(d, d.joined.length - 1).y}: science-quality where NASA has it${d.provisional_from ? `, near-real-time from ${FULL[+d.provisional_from.slice(5) - 1]} ${d.provisional_from.slice(0, 4)} (provisional)` : ""}. Kept when it falls in a 0.1 degree square where ${name} has had VIIRS fires before.</li>` : ""}
       <li><a href="https://www.earthdata.nasa.gov/news/blog/transitioning-from-suomi-npp-viirs-omps-what-firms-users-need-know">NASA FIRMS, October 2026</a>: the end of Suomi NPP and the move to NOAA-20 and NOAA-21.</li>
       <li><a href="https://www.earthdata.nasa.gov/data/alerts-outages/transition-from-modis-viirs">NASA Earthdata, May 2025</a>: Terra and Aqua shut down from late 2026 and are drifting.</li>
       <li><a href="https://essd.copernicus.org/articles/18/7535/2026/">Chen et al. 2026</a>: region-specific scaling between VIIRS and MODIS fire records, the published method closest to ours.</li>

@@ -15,6 +15,7 @@ NASA's MODIS (2000 on) and VIIRS (2012 on) active fire detections, joined into o
 ```bash
 cd pipeline
 ./fetch-country.sh Sri_Lanka            # FIRMS yearly country files, no login, about 1 to 500 MB per country
+python3 fetch-recent.py Sri_Lanka       # optional: this year's NOAA-20 months through the FIRMS API (needs a free MAP_KEY in resources/data/firms-key.txt)
 python3 harmonize.py Sri_Lanka          # writes site/data/Sri_Lanka.json and prints the test of the join
 ```
 
