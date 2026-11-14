@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One Fire Record</title>
+<meta name="description" content="NASA's MODIS and VIIRS fire detections joined into one tested monthly record. See if this month is normal for your place.">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<!--
+THESIS: one continuous pen trace from two satellite eras, with its error drawn in. Refuses the dark dashboard of glowing fire cards.
+OWN-WORLD: a chart recorder. Pale chart paper with a fine green grid, blue-black ink, each satellite a labelled channel on a tape, one orange ramp for fire, pen-blue controls.
+STORY: the visitor learns that the fire record is two instruments, sees them become one, and reads whether this month is normal for their place.
+FIRST VIEWPORT: the place picker, then one sentence that answers "is this month normal", then the 25-year trace with its sensor tape.
+FORM: strip-chart recorder paper, candidate 6 of 7, seed 2f16307d.
+FINISH: two inspection rounds at phone and PC size, the detector once, then stop.
+-->
+<header class="top">
+  <div class="wrap">
+    <p class="brand">One Fire Record</p>
+    <label class="place">
+      <span>Place</span>
+      <select id="place" aria-label="Country"></select>
+    </label>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="answer" aria-live="polite">
+    <h1 id="answer">Loading the fire record…</h1>
+    <p id="answer-detail" class="lede"></p>
+    <div id="range" class="range" role="img"></div>
+  </section>
+
+  <section>
+    <h2>One record, four satellites</h2>
+    <p class="note">Fire detections per month. Before 2012 the values are MODIS counts scaled to what VIIRS would have seen; the shaded band is where 8 of 10 real values fell when we tested the scaling.</p>
+    <div id="strip" class="paper"></div>
+  </section>
+
+  <section>
+    <div class="row">
+      <h2>Burning calendar</h2>
+      <fieldset class="switch" id="view">
+        <legend class="sr">Which record to show</legend>
+        <label><input type="radio" name="view" value="joined" checked><span>Joined</span></label>
+        <label><input type="radio" name="view" value="modis"><span>MODIS only</span></label>
+        <label><input type="radio" name="view" value="viirs"><span>VIIRS only</span></label>
+      </fieldset>
+    </div>
+    <p class="note" id="calendar-note"></p>
+    <div id="calendar" class="calendar"></div>
+    <div id="legend" class="legend"></div>
+    <details>
+      <summary>Read the calendar as a table</summary>
+      <div class="scroll"><table id="table"></table></div>
+    </details>
+  </section>
+
+  <section class="two">
+    <div>
+      <h2>Which months burn</h2>
+      <p class="note">The usual number of detections in each calendar month. The bar is the middle year; the line spans the middle half of years.</p>
+      <div id="months" class="paper"></div>
+    </div>
+    <div>
+      <h2>Which years were worst</h2>
+      <p class="note">Detections per year. Years before 2012 are estimates; the line shows their test error.</p>
+      <div id="years" class="paper"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Your own area</h2>
+    <p class="note" id="map-note">Move and zoom the map, then use the view as your area. Every chart above redraws for it, with the factors learned for the whole country.</p>
+    <div id="map" class="map"></div>
+    <div class="actions">
+      <button id="use-view" type="button">Use this view as my area</button>
+      <button id="clear-view" type="button" class="quiet" hidden>Back to the whole country</button>
+      <button id="download" type="button" class="quiet">Download this record (CSV)</button>
+    </div>
+  </section>
+
+  <section class="method">
+    <h2>How we joined them</h2>
+    <div id="method"></div>
+  </section>
+</main>
+
+<footer class="wrap foot">
+  <p>We acknowledge the use of data and/or imagery from NASA's Fire Information for Resource Management System (FIRMS) (<a href="https://earthdata.nasa.gov/firms">https://earthdata.nasa.gov/firms</a>), part of NASA's Land, Atmosphere Near real-time Capability for Earth observations (LANCE) (<a href="https://earthdata.nasa.gov/lance">https://earthdata.nasa.gov/lance</a>) and NASA's Earth Science Data and Information System (ESDIS).</p>
+  <p>Background map: NASA GIBS Blue Marble. Built for the NASA Space Apps Challenge 2026, challenge "Harmonization of MODIS and VIIRS Hot Spots". Not a NASA product; NASA does not endorse it. Code and method were written with an AI assistant (Claude).</p>
+</footer>
+
+<div id="tip" class="tip" role="status" hidden></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>
