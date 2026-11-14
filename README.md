@@ -63,4 +63,4 @@ This is not a NASA product and NASA does not endorse it.
 
 ## AI use
 
-I built this with an AI coding assistant (Claude, by Anthropic). I chose the challenge and the goal and made the decisions; the assistant proposed the joining method and wrote most of the code and text. I used the page and asked for the fixes and the map changes. The data files in `site/data/` come from that code and NASA data. No AI-made images, video or audio are used.
+I built this with help from an AI assistant (Claude, by Anthropic) for the code and the text. I chose the challenge and the goal, made the decisions, and tested the page. The data files in `site/data/` come from that code and NASA data. No AI-made images, video or audio are used.
