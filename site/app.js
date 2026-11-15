@@ -807,13 +807,14 @@ function drawMethod(d) {
   const f = d.factor, t = d.test, pct = v => (v > 0 ? "+" : "") + v + "%";
   const drift = Object.entries(d.drift), list = key => drift.map(([y, o]) => `${pct(o[key])} in ${y}`).join(", ");
   const name = h("span", { text: d.name }).innerHTML, spot = d.spot || 300;
+  const close = (a, b) => (Math.abs(a - b) < 1 ? ", about the same here: the monthly factors help little in this place" : "");   // say it when the two methods tie
   $("method").innerHTML = `
     <p>NASA has watched fires with two kinds of sensor. MODIS, on the Terra and Aqua satellites, since 2000, with 1 km pixels. VIIRS, on Suomi NPP and then NOAA-20, since 2012, with 375 m pixels. VIIRS sees smaller fires, so it reports far more detections for the same burning. Until that gap is closed, the two cannot be read as one record.</p>
     <ul class="figures">
       <li><strong>${f.all.toFixed(1)}×</strong>more detections from VIIRS than from MODIS in ${name}, 2012 to 2021</li>
       <li><strong>${Math.min(...f.by_month).toFixed(1)}× to ${Math.max(...f.by_month).toFixed(1)}×</strong>how that gap moves through the year, so we use one factor per calendar month</li>
-      <li><strong>${t.monthly.year_err_mean}%</strong>average miss on a hidden year's total. With one fixed factor: ${t.fixed.year_err_mean}%</li>
-      <li><strong>${t.monthly.month_err}%</strong>average miss on a hidden month. With one fixed factor: ${t.fixed.month_err}%</li>
+      <li><strong>${t.monthly.year_err_mean}%</strong>average miss on a hidden year's total. With one fixed factor: ${t.fixed.year_err_mean}%${close(t.monthly.year_err_mean, t.fixed.year_err_mean)}</li>
+      <li><strong>${t.monthly.month_err}%</strong>average miss on a hidden month. With one fixed factor: ${t.fixed.month_err}%${close(t.monthly.month_err, t.fixed.month_err)}</li>
     </ul>
     <h3>What we did</h3>
     <ol>

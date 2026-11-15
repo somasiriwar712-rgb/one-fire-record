@@ -4,6 +4,7 @@
 # Files land in ../../resources/data/firms/<sensor>/ (kept out of git). Safe to re-run: finished files are skipped.
 set -u
 country="${1:?country name, e.g. Sri_Lanka}"
+mkdir -p "$(dirname "$0")/../../resources/data"   # a fresh machine (the weekly GitHub run) has no data folder yet
 out="$(cd "$(dirname "$0")/../../resources/data" && pwd)/firms"
 base="https://firms.modaps.eosdis.nasa.gov/data/country"
 last_year=$(( $(date +%Y) - 1 ))   # last year's file; this year comes from fetch-recent.py. A year NASA has not published yet is a 404 and is tried again next run
