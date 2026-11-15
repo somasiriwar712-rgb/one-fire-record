@@ -71,7 +71,3 @@ We acknowledge the use of data and/or imagery from NASA's Fire Information for R
 - Map library: MapLibre GL JS 5.24.1.
 
 This is not a NASA product and NASA does not endorse it.
-
-## AI use
-
-I built this with help from an AI assistant (Claude, by Anthropic) for the code and the text. I chose the challenge and the goal, made the decisions, and tested the page. The data files in `site/data/` and `site/feed/` come from that code and NASA data. No AI-made images, video or audio are used.
