@@ -104,6 +104,89 @@ const T = {
     months: ["ஜனவரி", "பிப்ரவரி", "மார்ச்", "ஏப்ரல்", "மே", "ஜூன்", "ஜூலை", "ஆகஸ்ட்", "செப்டம்பர்", "அக்டோபர்", "நவம்பர்", "டிசம்பர்"],
   },
 };
+// the notes under each chart, in all three languages; a missing line falls back to English
+Object.assign(T.en, {
+  area: "your area", hint: "Tap a gold country to open its fire record",
+  paceNote: (start, from, to, where, n, rank, pct) => `Each thin line is one fire year, counted from ${start}, the quietest month here, so a season is never cut in two; dashed lines are years estimated from MODIS. From ${from} to ${to}, ${where} had ${n}: ${rank}, ${pct}% of a middle year.`,
+  rankMost: (r, total) => `the ${r === 1 ? "" : ordinal(r) + " "}most of ${total} fire years`,
+  rankFewest: (r, total) => `the ${r === 1 ? "" : ordinal(r) + " "}fewest of ${total} fire years`,
+  outlook: (n, a, c, mid, q1, q3) => `<b>What usually comes next:</b> in the ${n} earlier years, ${a} to ${c} brought ${mid} detections in the middle year (middle half of years: ${q1} to ${q3}). This is the past, not a forecast.`,
+  stripCounted: f => `As each sensor counted, with no joining. MODIS (blue) since 2000, VIIRS (orange) since 2012. The jump between them is the sensor, not the fire: VIIRS sees about ${f} times more here.`,
+  stripJoined: (lo, hi) => `Fire detections per month, in VIIRS units. Before 2012 each month is estimated from MODIS; the grey band shows the likely range. In a busy month the real value was usually between ${lo}% below and ${hi}% above the estimate.`,
+  seam: (name, date, gap, k) => `The same fire in ${name} on ${date}, seen by both satellites ${gap ? `${gap} minutes apart` : "in the same minute"}. Each square is one pixel that NASA marked as fire, drawn at its real size. VIIRS counted ${k} times more for the same burning. Put the two records side by side without joining them, and every year before 2012 looks far calmer than it was.`,
+  calJoined: "Each square is one month. A cut corner means the value is an estimate scaled from MODIS.",
+  calModis: f => `MODIS as counted, not scaled. Compare its colours with the joined view: the same fires, about ${f} times fewer detections.`,
+  calViirs: "VIIRS as counted. It starts in 2012, so on its own it cannot say what is normal over 25 years.",
+  perMonth: x => `${x}+ detections a month`, estMODIS: "estimated from MODIS", noData: "no data", byVIIRS: "measured by VIIRS",
+  worstMeasured: y => `The worst year, ${y}, was measured by VIIRS, not estimated.`,
+  worstArea: y => `The worst year, ${y}, is an estimate from MODIS. Read it with its range.`,
+  worstCheck: (y, v) => `Check: the worst year, ${y}, is an estimate from MODIS. Terra, the one satellite that flew all of 2001 to 2021, counted with no scaling at all, ranks ${y} ${v}.`,
+  rank1: "first too", rankTop: (r, n) => `${ordinal(r)} of ${n}, so it was a bad year whatever the method`, rankLow: (r, n) => `only ${ordinal(r)} of ${n}, so treat this peak with care`,
+  periods: { 30: "30 days", 91: "3 months" },
+  mapFires: (n, name, year, period, until, m, prov) => `${n} spots where NASA's NOAA-20 satellite saw fire in ${name}${year ? ` in ${year}` : `, ${period} up to ${until}`}. Zoomed out, they glow as a heat map; zoom in and each dot is one satellite pixel, about ${m} m. Tap a dot for its date. A dot is a spot that was burning when the satellite passed: often a field being cleared or a grass fire, sometimes a wildfire. Most are too small to make the news.${prov ? ` Fires from ${prov} on are near-real-time data, so provisional.` : ""}`,
+  mapBurn: km => `Each square of about ${km} km is coloured by the month it burns most, from 26 years of the joined record; stronger colour means more fire. Tap a square for its numbers.`,
+  mapUnusual: (km, mon, y, prov) => `Each square of about ${km} km compares ${mon} ${y} with the same month in the years before${prov ? " (near-real-time data, provisional)" : ""}. Squares with almost no fire either way are left out.`,
+  mapLoading: "Loading this year's fires…", mapError: "This year's fires could not load. The charts above are not affected.",
+  zoomIn: "Zoom in to a region first: the area must be smaller than a continent.",
+  ages: ["last 7 days of data", "8 to 30 days before", "1 to 3 months before", "earlier in the year"],
+});
+Object.assign(T.si, {
+  hint: "ගිනි වාර්තාව විවෘත කිරීමට රන්වන් රටක් තට්ටු කරන්න",
+  "months-note": "සෑම දින දර්ශන මාසයකම සාමාන්‍ය ගිනි හඳුනාගැනීම් ගණන. තීරුව මැද වසරයි; රේඛාව වසරවලින් මැද භාගය පෙන්වයි.",
+  "years-note": "වසරකට ගිනි හඳුනාගැනීම්. ලා තීරු MODIS ඇස්තමේන්තු වේ; ඒවායේ රේඛාව පරීක්ෂණ දෝෂය පෙන්වයි.",
+  "table-sum": "දින දර්ශනය වගුවක් ලෙස කියවන්න",
+  paceNote: (start, from, to, where, n, rank, pct) => `සෑම තුනී රේඛාවක්ම එක් ගිනි වසරකි. එය මෙහි නිහඬම මාසය වන ${start} සිට ගණන් කෙරේ, එවිට කන්නයක් දෙකට නොකැඩේ; කඩ ඉරි රේඛා MODIS වලින් ඇස්තමේන්තු කළ වසර වේ. ${from} සිට ${to} දක්වා ${where} හි ගිනි හඳුනාගැනීම් ${n}ක් විය: ${rank}, මැද වසරක ${pct}%.`,
+  rankMost: (r, total) => `ගිනි වසර ${total} අතරින් ${r === 1 ? "" : r + " වැනි "}වැඩිම`,
+  rankFewest: (r, total) => `ගිනි වසර ${total} අතරින් ${r === 1 ? "" : r + " වැනි "}අඩුම`,
+  outlook: (n, a, c, mid, q1, q3) => `<b>සාමාන්‍යයෙන් ඊළඟට එන්නේ:</b> පෙර වසර ${n} තුළ, ${a} සිට ${c} දක්වා මැද වසරේ ගිනි හඳුනාගැනීම් ${mid}ක් විය (වසරවලින් මැද භාගය: ${q1} සිට ${q3}). මෙය අතීතයයි, අනාවැකියක් නොවේ.`,
+  stripCounted: f => `එකතු නොකර, එක් එක් සංවේදකය ගණන් කළ ලෙස. MODIS (නිල්) 2000 සිට, VIIRS (තැඹිලි) 2012 සිට. ඒ දෙක අතර පැනීම ඇත්තේ සංවේදකය නිසා මිස ගින්න නිසා නොවේ: මෙහි VIIRS ${f} ගුණයක් පමණ වැඩියෙන් දකී.`,
+  stripJoined: (lo, hi) => `මසකට ගිනි හඳුනාගැනීම්, VIIRS ඒකක වලින්. 2012 ට පෙර සෑම මාසයක්ම MODIS වලින් ඇස්තමේන්තු කර ඇත; අළු පටිය විය හැකි පරාසය පෙන්වයි. කාර්යබහුල මාසයක සැබෑ අගය සාමාන්‍යයෙන් ඇස්තමේන්තුවට වඩා ${lo}% අඩු සහ ${hi}% වැඩි අතර විය.`,
+  seam: (name, date, gap, k) => `${date} දින ${name} හි එකම ගින්න, චන්ද්‍රිකා දෙකම ${gap ? `මිනිත්තු ${gap}ක පරතරයකින්` : "එකම මිනිත්තුවේ"} දුටුවේය. සෑම කොටුවක්ම NASA ගින්නක් ලෙස සලකුණු කළ එක් පික්සලයක් වන අතර එය සැබෑ ප්‍රමාණයෙන් ඇඳ ඇත. එකම ගින්න සඳහා VIIRS ${k} ගුණයක් වැඩියෙන් ගණන් කළේය. වාර්තා දෙක එකතු නොකර පැත්තකින් තැබුවොත්, 2012 ට පෙර සෑම වසරක්ම ඇත්තට වඩා බොහෝ සන්සුන් ලෙස පෙනේ.`,
+  calJoined: "සෑම කොටුවක්ම එක් මාසයකි. කැපූ කොනක් යනු එම අගය MODIS වලින් පරිමාණය කළ ඇස්තමේන්තුවක් බවයි.",
+  calModis: f => `MODIS ගණන් කළ ලෙස, පරිමාණය නොකර. එහි වර්ණ එකතු කළ දර්ශනය සමඟ සසඳන්න: එකම ගිනි, හඳුනාගැනීම් ${f} ගුණයක් පමණ අඩුයි.`,
+  calViirs: "VIIRS ගණන් කළ ලෙස. එය 2012 දී ආරම්භ වන නිසා, තනිවම වසර 25ක් පුරා සාමාන්‍ය කුමක්දැයි කිව නොහැක.",
+  perMonth: x => `මසකට හඳුනාගැනීම් ${x}+`, estMODIS: "MODIS වලින් ඇස්තමේන්තු කළ", noData: "දත්ත නැත", byVIIRS: "VIIRS මගින් මනින ලද",
+  worstMeasured: y => `නරකම වසර වන ${y} VIIRS මගින් මනින ලදී, ඇස්තමේන්තු කළේ නැත.`,
+  worstArea: y => `නරකම වසර වන ${y} MODIS ඇස්තමේන්තුවකි. එය එහි පරාසය සමඟ කියවන්න.`,
+  worstCheck: (y, v) => `පරීක්ෂාව: නරකම වසර වන ${y} MODIS ඇස්තමේන්තුවකි. 2001 සිට 2021 දක්වා මුළු කාලයම පියාසර කළ එකම චන්ද්‍රිකාව වන Terra, කිසිදු පරිමාණයකින් තොරව ගණන් කළ විට, ${y} ${v}.`,
+  rank1: "පළමු ස්ථානයේම තබයි", rankTop: (r, n) => `වසර ${n} අතරින් ${r} වැනි ස්ථානයේ තබයි, එබැවින් ක්‍රමය කුමක් වුවත් එය නරක වසරක් විය`, rankLow: (r, n) => `වසර ${n} අතරින් ${r} වැනි ස්ථානයේ පමණක් තබයි, එබැවින් මෙම උච්චය ප්‍රවේශමෙන් සලකන්න`,
+  periods: { 30: "දින 30", 91: "මාස 3" },
+  mapFires: (n, name, year, period, until, m, prov) => `${name} හි NASA හි NOAA-20 චන්ද්‍රිකාව ගිනි දුටු ස්ථාන ${n}ක්${year ? ` (${year})` : `, ${until} දක්වා ${period}`}. දුරින් බලන විට ඒවා තාප සිතියමක් ලෙස දිලිසේ; ළං කළ විට සෑම තිතක්ම මීටර් ${m}ක් පමණ වූ එක් චන්ද්‍රිකා පික්සලයකි. දිනය බැලීමට තිතක් තට්ටු කරන්න. තිතක් යනු චන්ද්‍රිකාව යන විට ගිනි ගනිමින් තිබූ ස්ථානයකි: බොහෝ විට එළි කරන කුඹුරක් හෝ ඉඩමක්, නැතහොත් තණකොළ ගින්නක්, සමහර විට වල් ගින්නක්. බොහොමයක් පුවත්වලට එන තරම් විශාල නැත.${prov ? ` ${prov} සිට ගිනි ආසන්න තත්‍ය කාලීන දත්ත බැවින් තාවකාලිකය.` : ""}`,
+  mapBurn: km => `කි.මී. ${km}ක් පමණ වූ සෑම කොටුවක්ම වැඩිපුරම ගිනි ගන්නා මාසය අනුව වර්ණ ගන්වා ඇත, එකතු කළ වාර්තාවේ වසර 26කින්; තද වර්ණය යනු වැඩි ගින්නකි. අංක බැලීමට කොටුවක් තට්ටු කරන්න.`,
+  mapUnusual: (km, mon, y, prov) => `කි.මී. ${km}ක් පමණ වූ සෑම කොටුවක්ම ${y} ${mon} පෙර වසරවල එම මාසය සමඟ සසඳයි${prov ? " (ආසන්න තත්‍ය කාලීන දත්ත, තාවකාලික)" : ""}. දෙපැත්තෙන්ම ගිනි නැති තරම් කොටු ඉවත් කර ඇත.`,
+  mapLoading: "මේ වසරේ ගිනි පූරණය වෙමින්…", mapError: "මේ වසරේ ගිනි පූරණය කළ නොහැකි විය. ඉහත ප්‍රස්ථාරවලට බලපෑමක් නැත.",
+  zoomIn: "පළමුව ප්‍රදේශයකට ළං කරන්න: ප්‍රදේශය මහාද්වීපයකට වඩා කුඩා විය යුතුය.",
+  ages: ["දත්තවල අවසන් දින 7", "දින 8 සිට 30 කට පෙර", "මාස 1 සිට 3 කට පෙර", "වසරේ කලින්"],
+});
+Object.assign(T.ta, {
+  hint: "தீப் பதிவைத் திறக்க ஒரு தங்க நிற நாட்டைத் தட்டுங்கள்",
+  "months-note": "ஒவ்வொரு மாதத்திலும் வழக்கமான தீ கண்டறிதல்களின் எண்ணிக்கை. பட்டை நடு ஆண்டு; கோடு ஆண்டுகளின் நடுப் பாதியைக் காட்டுகிறது.",
+  "years-note": "ஆண்டுக்கு தீ கண்டறிதல்கள். வெளிர் பட்டைகள் MODIS மதிப்பீடுகள்; அவற்றின் கோடு சோதனைப் பிழையைக் காட்டுகிறது.",
+  "table-sum": "நாட்காட்டியை அட்டவணையாகப் படிக்கவும்",
+  paceNote: (start, from, to, where, n, rank, pct) => `ஒவ்வொரு மெல்லிய கோடும் ஒரு தீ ஆண்டு. இங்கே மிக அமைதியான மாதமான ${start} முதல் எண்ணப்படுகிறது, அதனால் ஒரு பருவம் இரண்டாகப் பிரிவதில்லை; புள்ளிக் கோடுகள் MODIS இலிருந்து மதிப்பிடப்பட்ட ஆண்டுகள். ${from} முதல் ${to} வரை ${where} இல் ${n} தீ கண்டறிதல்கள்: ${rank}, நடு ஆண்டின் ${pct}%.`,
+  rankMost: (r, total) => `${total} தீ ஆண்டுகளில் ${r === 1 ? "மிக" : r + "-ஆவது"} அதிகம்`,
+  rankFewest: (r, total) => `${total} தீ ஆண்டுகளில் ${r === 1 ? "மிகக்" : r + "-ஆவது"} குறைவு`,
+  outlook: (n, a, c, mid, q1, q3) => `<b>வழக்கமாக அடுத்து வருவது:</b> முந்தைய ${n} ஆண்டுகளில், ${a} முதல் ${c} வரை நடு ஆண்டில் ${mid} தீ கண்டறிதல்கள் (ஆண்டுகளின் நடுப் பாதி: ${q1} முதல் ${q3} வரை). இது கடந்த காலம், முன்னறிவிப்பு அல்ல.`,
+  stripCounted: f => `இணைக்காமல், ஒவ்வொரு உணரியும் கணக்கிட்டபடி. MODIS (நீலம்) 2000 முதல், VIIRS (ஆரஞ்சு) 2012 முதல். அவற்றுக்கிடையிலான தாவல் உணரியால் வருவது, தீயால் அல்ல: இங்கே VIIRS சுமார் ${f} மடங்கு அதிகமாகக் காண்கிறது.`,
+  stripJoined: (lo, hi) => `மாதத்திற்கு தீ கண்டறிதல்கள், VIIRS அலகுகளில். 2012க்கு முன் ஒவ்வொரு மாதமும் MODIS இலிருந்து மதிப்பிடப்பட்டது; சாம்பல் பட்டை சாத்தியமான வரம்பைக் காட்டுகிறது. பரபரப்பான மாதத்தில் உண்மையான மதிப்பு பொதுவாக மதிப்பீட்டை விட ${lo}% குறைவுக்கும் ${hi}% அதிகத்துக்கும் இடையில் இருந்தது.`,
+  seam: (name, date, gap, k) => `${date} அன்று ${name} இல் ஒரே தீ, இரண்டு செயற்கைக்கோள்களும் ${gap ? `${gap} நிமிட இடைவெளியில்` : "ஒரே நிமிடத்தில்"} கண்டன. ஒவ்வொரு சதுரமும் NASA தீ என்று குறித்த ஒரு பிக்சல், அதன் உண்மையான அளவில் வரையப்பட்டது. அதே தீக்கு VIIRS ${k} மடங்கு அதிகமாகக் கணக்கிட்டது. இணைக்காமல் இரண்டு பதிவுகளையும் அருகருகே வைத்தால், 2012க்கு முந்தைய ஒவ்வொரு ஆண்டும் உண்மையை விட மிகவும் அமைதியாகத் தெரியும்.`,
+  calJoined: "ஒவ்வொரு சதுரமும் ஒரு மாதம். வெட்டப்பட்ட மூலை என்றால் அந்த மதிப்பு MODIS இலிருந்து அளவிடப்பட்ட மதிப்பீடு.",
+  calModis: f => `MODIS கணக்கிட்டபடி, அளவிடாமல். அதன் நிறங்களை இணைக்கப்பட்ட காட்சியுடன் ஒப்பிடுங்கள்: அதே தீ, சுமார் ${f} மடங்கு குறைவான கண்டறிதல்கள்.`,
+  calViirs: "VIIRS கணக்கிட்டபடி. இது 2012 இல் தொடங்குவதால், தனியாக 25 ஆண்டுகளில் எது இயல்பு என்று சொல்ல முடியாது.",
+  perMonth: x => `மாதத்திற்கு ${x}+ கண்டறிதல்கள்`, estMODIS: "MODIS இலிருந்து மதிப்பிடப்பட்டது", noData: "தரவு இல்லை", byVIIRS: "VIIRS அளந்தது",
+  worstMeasured: y => `மோசமான ஆண்டான ${y}, VIIRS ஆல் அளக்கப்பட்டது, மதிப்பிடப்படவில்லை.`,
+  worstArea: y => `மோசமான ஆண்டான ${y}, MODIS மதிப்பீடு. அதன் வரம்புடன் படியுங்கள்.`,
+  worstCheck: (y, v) => `சோதனை: மோசமான ஆண்டான ${y}, MODIS மதிப்பீடு. 2001 முதல் 2021 வரை முழுவதும் பறந்த ஒரே செயற்கைக்கோளான Terra, எந்த அளவிடலும் இல்லாமல் கணக்கிட்டால், ${y} ஐ ${v}.`,
+  rank1: "முதலிடத்திலேயே வைக்கிறது", rankTop: (r, n) => `${n} இல் ${r}-ஆவது இடத்தில் வைக்கிறது, எனவே எந்த முறையிலும் அது மோசமான ஆண்டு`, rankLow: (r, n) => `${n} இல் ${r}-ஆவது இடத்தில் மட்டுமே வைக்கிறது, எனவே இந்த உச்சத்தைக் கவனமாகக் கருதுங்கள்`,
+  periods: { 30: "30 நாட்கள்", 91: "3 மாதங்கள்" },
+  mapFires: (n, name, year, period, until, m, prov) => `${name} இல் NASA வின் NOAA-20 செயற்கைக்கோள் தீயைக் கண்ட ${n} இடங்கள்${year ? ` (${year})` : `, ${until} வரை ${period}`}. தொலைவில் இருந்து பார்த்தால் அவை வெப்ப வரைபடமாக ஒளிர்கின்றன; பெரிதாக்கினால் ஒவ்வொரு புள்ளியும் சுமார் ${m} மீ அளவுள்ள ஒரு செயற்கைக்கோள் பிக்சல். தேதியைப் பார்க்க ஒரு புள்ளியைத் தட்டுங்கள். ஒரு புள்ளி என்பது செயற்கைக்கோள் கடந்தபோது எரிந்துகொண்டிருந்த இடம்: பெரும்பாலும் சுத்தம் செய்யப்படும் வயல் அல்லது புல் தீ, சில நேரங்களில் காட்டுத் தீ. பெரும்பாலானவை செய்திகளில் வரும் அளவுக்குப் பெரியவை அல்ல.${prov ? ` ${prov} முதல் உள்ள தீ கிட்டத்தட்ட நிகழ்நேரத் தரவு, எனவே தற்காலிகமானது.` : ""}`,
+  mapBurn: km => `சுமார் ${km} கி.மீ. அளவுள்ள ஒவ்வொரு சதுரமும் அது அதிகம் எரியும் மாதத்தின்படி நிறமிடப்பட்டுள்ளது, இணைக்கப்பட்ட பதிவின் 26 ஆண்டுகளிலிருந்து; அடர்ந்த நிறம் என்றால் அதிக தீ. எண்களைப் பார்க்க ஒரு சதுரத்தைத் தட்டுங்கள்.`,
+  mapUnusual: (km, mon, y, prov) => `சுமார் ${km} கி.மீ. அளவுள்ள ஒவ்வொரு சதுரமும் ${y} ${mon} ஐ முந்தைய ஆண்டுகளின் அதே மாதத்துடன் ஒப்பிடுகிறது${prov ? " (கிட்டத்தட்ட நிகழ்நேரத் தரவு, தற்காலிகமானது)" : ""}. இரு பக்கத்திலும் தீ கிட்டத்தட்ட இல்லாத சதுரங்கள் விடப்பட்டுள்ளன.`,
+  mapLoading: "இந்த ஆண்டின் தீ ஏற்றப்படுகிறது…", mapError: "இந்த ஆண்டின் தீயை ஏற்ற முடியவில்லை. மேலே உள்ள வரைபடங்கள் பாதிக்கப்படவில்லை.",
+  zoomIn: "முதலில் ஒரு பகுதிக்குப் பெரிதாக்குங்கள்: பகுதி ஒரு கண்டத்தை விடச் சிறியதாக இருக்க வேண்டும்.",
+  ages: ["தரவின் கடைசி 7 நாட்கள்", "8 முதல் 30 நாட்களுக்கு முன்", "1 முதல் 3 மாதங்களுக்கு முன்", "ஆண்டின் முன்பகுதியில்"],
+});
+const words = () => ({ ...T.en, ...T[state.lang] });
 const placeName = d => T[state.lang].names?.[d.id] ?? d.name;
 function applyLang() {
   const t = T[state.lang];
@@ -260,18 +343,17 @@ function drawPace(d, rec) {
     return `<b>${fyName(fy)}: ${fmt(v)}</b>detections from ${FULL[start]} to the end of ${FULL[order[k]]}${estMonths(fy) === 12 ? "<br><small>estimated from MODIS</small>" : estMonths(fy) ? `<br><small>${estMonths(fy)} of 12 months estimated from MODIS</small>` : ""}`;
   });
   box.replaceChildren(svg);
-  const where = state.area ? "your area" : d.name;
+  const w = words(), where = state.area ? w.area : placeName(d);
   if (!cur.length) { $("pace-note").textContent = ""; $("outlook").textContent = ""; return; }
   const sofar = cur[nowP], others = past.map(fy => runs[fy][nowP]).sort((a, b) => a - b), rank = others.filter(v => v > sofar).length + 1, mid = quantile(others, 0.5), total = past.length + 1;
-  const from = `${FULL[start]} ${nowFy}`, to = `${FULL[last.m]} ${last.y}`;
   svg.setAttribute("aria-label", `Running total of fire detections in each fire year in ${where}, from ${FULL[start]}. ${fyName(nowFy)} so far: ${fmt(sofar)}; a middle year had ${fmt(mid)} by the end of ${FULL[last.m]}.`);
-  $("pace-note").textContent = `Each thin line is one fire year, counted from ${FULL[start]}, the quietest month here, so a season is never cut in two; dashed lines are years estimated from MODIS. From ${from} to ${to}, ${where} had ${fmt(sofar)}: ` +
-    (rank <= total / 2 ? `the ${ordinal(rank)} most of ${total} fire years` : `the ${ordinal(total + 1 - rank)} fewest of ${total} fire years`) + `, ${mid ? Math.round(sofar / mid * 100) : 0}% of a middle year.`;
+  $("pace-note").textContent = w.paceNote(w.months[start], `${w.months[start]} ${nowFy}`, `${w.months[last.m]} ${last.y}`, where, fmt(sofar),
+    rank <= total / 2 ? w.rankMost(rank, total) : w.rankFewest(total + 1 - rank, total), mid ? Math.round(sofar / mid * 100) : 0);
   // what usually comes next: the three months after the newest, in every earlier year
   const next = [1, 2, 3].map(k => (last.m + k) % 12), sums = [];
   for (let i = 0; i + 3 < n; i++) if (ym(d, i).m === next[0] && i < n - 12) sums.push(rec.joined[i] + rec.joined[i + 1] + rec.joined[i + 2]);
   sums.sort((a, b) => a - b);
-  $("outlook").innerHTML = sums.length ? `<b>What usually comes next:</b> in the ${sums.length} earlier years, ${FULL[next[0]]} to ${FULL[next[2]]} brought ${fmt(quantile(sums, 0.5))} detections in the middle year (middle half of years: ${fmt(quantile(sums, 0.25))} to ${fmt(quantile(sums, 0.75))}). This is the past, not a forecast.` : "";
+  $("outlook").innerHTML = sums.length ? w.outlook(sums.length, w.months[next[0]], w.months[next[2]], fmt(quantile(sums, 0.5)), fmt(quantile(sums, 0.25)), fmt(quantile(sums, 0.75))) : "";
 }
 const ordinal = n => n === 1 ? "" : n + (n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : n % 10 === 1 && n % 100 !== 11 ? "st" : "th");
 
@@ -333,9 +415,7 @@ function drawStrip(d, rec) {
   svg.append(cross, hit);
   box.replaceChildren(svg);
   const b = d.test.band.busy;
-  $("strip-note").textContent = counted
-    ? `As each sensor counted, with no joining. MODIS (blue) since 2000, VIIRS (orange) since 2012. The jump between them is the sensor, not the fire: VIIRS sees about ${d.factor.all.toFixed(1)} times more here.`
-    : `Fire detections per month, in VIIRS units. Before 2012 each month is estimated from MODIS; the grey band shows the likely range. In a busy month the real value was usually between ${Math.round((1 - b[0]) * 100)}% below and ${Math.round((b[1] - 1) * 100)}% above the estimate.`;
+  $("strip-note").textContent = counted ? words().stripCounted(d.factor.all.toFixed(1)) : words().stripJoined(Math.round((1 - b[0]) * 100), Math.round((b[1] - 1) * 100));
 }
 
 // ---------- the seam: one fire, both sensors, the same afternoon ----------
@@ -361,7 +441,7 @@ async function drawSeam(d) {
   const date = new Date(seam.date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
   const gap = Math.abs((+seam.modis_time.slice(0, 2) * 60 + +seam.modis_time.slice(2)) - (+seam.viirs_time.slice(0, 2) * 60 + +seam.viirs_time.slice(2)));
   box.replaceChildren(panel(M, "#5aa2ff", "MODIS on Aqua", "about 1 km", M.length), panel(V, "#ff8a4c", "VIIRS on Suomi NPP", "about 375 m", V.length));
-  $("seam-note").textContent = `The same fire in ${d.name} on ${date}, seen by both satellites ${gap ? `${gap} minutes apart` : "in the same minute"}. Each square is one pixel that NASA marked as fire, drawn at its real size. VIIRS counted ${(V.length / M.length).toFixed(1)} times more for the same burning. Put the two records side by side without joining them, and every year before 2012 looks far calmer than it was.`;
+  $("seam-note").textContent = words().seam(placeName(d), date, gap, (V.length / M.length).toFixed(1));
 }
 
 // ---------- burning calendar, its legend and its table ----------
@@ -387,14 +467,12 @@ function drawCalendar(d, rec) {
   cal.replaceChildren(...cells);
   cal.querySelector("button[data-i]").tabIndex = 0;
   if (table) $("table").replaceChildren(...rows);
-  $("calendar-note").textContent = view === "joined"
-    ? "Each square is one month. A cut corner means the value is an estimate scaled from MODIS."
-    : view === "modis" ? "MODIS as counted, not scaled. Compare its colours with the joined view: the same fires, about " + d.factor.all.toFixed(0) + " times fewer detections."
-    : "VIIRS as counted. It starts in 2012, so on its own it cannot say what is normal over 25 years.";
+  const w = words();
+  $("calendar-note").textContent = view === "joined" ? w.calJoined : view === "modis" ? w.calModis(d.factor.all.toFixed(0)) : w.calViirs;
   const key = (cls, text) => h("span", { class: "key" }, h("i", { class: cls }), text);
-  const legend = [h("span", { class: "ramp" }, "1", ...br.map((_, k) => h("i", { style: `background:${ramp(k, br, colors)}`, title: `up to ${fmt(br[k])}` })), h("i", { style: `background:${ramp(br.length, br, colors)}`, title: `more than ${fmt(br[br.length - 1])}` }), `${fmt(br[br.length - 1])}+ detections a month`)];
-  if (view === "joined") legend.push(key("est", "estimated from MODIS"));
-  legend.push(key("none", "no data"));
+  const legend = [h("span", { class: "ramp" }, "1", ...br.map((_, k) => h("i", { style: `background:${ramp(k, br, colors)}`, title: `up to ${fmt(br[k])}` })), h("i", { style: `background:${ramp(br.length, br, colors)}`, title: `more than ${fmt(br[br.length - 1])}` }), w.perMonth(fmt(br[br.length - 1])))];
+  if (view === "joined") legend.push(key("est", w.estMODIS));
+  legend.push(key("none", w.noData));
   $("legend").replaceChildren(...legend);
 }
 function calendarEvents() {
@@ -457,16 +535,16 @@ function drawYears(d, rec) {
     };
   });
   const key = (color, text) => h("span", { class: "key" }, h("i", { style: `background:${color}` }), text);
-  bars($("years"), items, { labelEvery: 5, legend: h("div", { class: "legend", style: "margin:0;padding:0.4rem 0.5rem" }, key("var(--fire-3)", "estimated from MODIS"), key("var(--fire-5)", "measured by VIIRS")) });
+  bars($("years"), items, { labelEvery: 5, legend: h("div", { class: "legend", style: "margin:0;padding:0.4rem 0.5rem" }, key("var(--fire-3)", words().estMODIS), key("var(--fire-5)", words().byVIIRS)) });
   // the check a scientist asks for: is the worst year only an artefact of the scaling? Terra flew 2001 to 2021 alone and unchanged.
   const worst = items.reduce((a, b) => (b.v > a.v ? b : a)), note = $("years-check");
-  if (worst.color !== "var(--fire-3)") { note.textContent = `The worst year, ${worst.name}, was measured by VIIRS, not estimated.`; return; }
-  if (state.area) { note.textContent = `The worst year, ${worst.name}, is an estimate from MODIS. Read it with its range.`; return; }
+  const w = words();
+  if (worst.color !== "var(--fire-3)") { note.textContent = w.worstMeasured(worst.name); return; }
+  if (state.area) { note.textContent = w.worstArea(worst.name); return; }
   const terra = byYear(d, d.terra);
   const totals = Object.entries(terra).filter(([y, a]) => y >= 2001 && y <= 2021 && a.every(v => v !== null)).map(([y, a]) => [+y, a.reduce((p, q) => p + q, 0)]).sort((a, b) => b[1] - a[1]);
   const rank = totals.findIndex(([y]) => y === +worst.name) + 1;
-  note.textContent = `Check: the worst year, ${worst.name}, is an estimate from MODIS. Terra, the one satellite that flew all of 2001 to 2021, counted with no scaling at all, ranks ${worst.name} ` +
-    (rank === 1 ? "first too" : rank <= 3 ? `${ordinal(rank)} of ${totals.length}, so it was a bad year whatever the method` : `only ${ordinal(rank)} of ${totals.length}, so treat this peak with care`) + ".";
+  note.textContent = w.worstCheck(worst.name, rank === 1 ? w.rank1 : rank <= 3 ? w.rankTop(rank, totals.length) : w.rankLow(rank, totals.length));
 }
 
 // ---------- the map: a globe drawn on the graphics chip ----------
@@ -540,7 +618,7 @@ async function makeMap() {
   map.on("click", e => onMapClick(gl, e));
   map.on("mousemove", e => { map.getCanvas().style.cursor = hitAt(e.point) ? "pointer" : ""; });
   map.on("moveend", () => { if (state.mapReady) writeHash(); });
-  const hint = h("p", { class: "map-hint", text: "Tap a gold country to open its fire record" });
+  const hint = h("p", { class: "map-hint", "data-t": "hint", "data-en": T.en.hint, text: words().hint });
   map.getContainer().append(hint);
   const showHint = () => hint.classList.toggle("on", map.getZoom() < 3.2);   // only on the globe view, where countries are small
   map.on("zoom", showHint);
@@ -591,7 +669,7 @@ async function drawMap(d, { fly = false, view = null } = {}) {
   getJSON(`data/${d.id}.outline.json`).then(o => { if (state.d === d) map.getSource("outline").setData(o); }).catch(() => map.setFilter("borders", null));
   if (view) map.jumpTo(view);
   else map.fitBounds(countryBounds(d), { padding: 24, duration: fly && !calm() ? 2200 : 0, essential: false });
-  $("map-note").textContent = "Loading this year's fires…";
+  $("map-note").textContent = words().mapLoading;
   try {
     await withMap(d);
     if (state.d !== d) return;
@@ -607,7 +685,7 @@ async function drawMap(d, { fly = false, view = null } = {}) {
     features.sort((a, b) => b.properties.age - a.properties.age);   // oldest first, so the newest are drawn on top
     map.getSource("fires").setData({ type: "FeatureCollection", features });
     drawFires();
-  } catch { $("map-note").textContent = "This year's fires could not load. The charts above are not affected."; }
+  } catch { $("map-note").textContent = words().mapError; }
 }
 function fireFilter() { return ["<", ["get", "age"], +state.when]; }
 function drawFires() {
@@ -619,8 +697,9 @@ function drawFires() {
   for (let k = 2; k < fires.pts.length; k += 4) if (fires.last - fires.pts[k] < +state.when) shown++;
   state.shown = shown;
   const until = dayLabel(fires.year, fires.last);
-  $("map-note").textContent = `${fmt(shown)} spots where NASA's NOAA-20 satellite saw fire in ${d.name}${state.when === "366" ? ` in ${fires.year}` : `, ${state.when === "30" ? "30 days" : "3 months"} up to ${until}`}. Zoomed out, they glow as a heat map; zoom in and each dot is one satellite pixel, about ${Math.round(111320 / fires.scale)} m. Tap a dot for its date. A dot is a spot that was burning when the satellite passed: often a field being cleared or a grass fire, sometimes a wildfire. Most are too small to make the news.${d.provisional_from ? ` Fires from ${FULL[+d.provisional_from.slice(5) - 1]} on are near-real-time data, so provisional.` : ""}`;
-  $("map-key").replaceChildren(...AGES.filter(([days], i) => i === 0 || AGES[i - 1][0] < +state.when).map(([, color, text]) => h("span", { class: "key" }, h("i", { class: "dot", style: `background:${color}` }), text)));
+  const w = words();
+  $("map-note").textContent = w.mapFires(fmt(shown), placeName(d), state.when === "366" ? fires.year : null, w.periods[state.when], until, Math.round(111320 / fires.scale), d.provisional_from ? w.months[+d.provisional_from.slice(5) - 1] : "");
+  $("map-key").replaceChildren(...AGES.map(([, color], i) => [color, w.ages[i], i]).filter(([, , i]) => i === 0 || AGES[i - 1][0] < +state.when).map(([color, text]) => h("span", { class: "key" }, h("i", { class: "dot", style: `background:${color}` }), text)));
 }
 function square(x0, y0, size) { return { type: "Polygon", coordinates: [[[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size], [x0, y0]]] }; }
 function drawCells() {        // "when it burns" and "unusual now": the country's own map squares, coloured
@@ -637,8 +716,9 @@ function drawCells() {        // "when it burns" and "unusual now": the country'
       const t = totals[k], peak = by.indexOf(Math.max(...by)), share = Math.round(by[peak] / t * 100);
       features.push({ type: "Feature", geometry: square(x * c, y * c, c), properties: { c: MONTH_COLORS[peak], o: Math.min(0.9, 0.15 + 0.75 * Math.log1p(t) / top), html: `<b>Burns most in ${FULL[peak]}</b>${share}% of this square's fire since 2000 came in ${FULL[peak]}.<br>About ${fmt(t / 26)} detections a year.` } });
     });
-    $("map-note").textContent = `Each square of about ${Math.round(c * 111)} km is coloured by the month it burns most, from 26 years of the joined record; stronger colour means more fire. Tap a square for its numbers.`;
-    $("map-key").replaceChildren(h("span", { class: "wheel" }, ...MONTHS.map((mo, m) => h("span", { class: "key" }, h("i", { style: `background:${MONTH_COLORS[m]}` }), mo))));
+    const w = words();
+    $("map-note").textContent = w.mapBurn(Math.round(c * 111));
+    $("map-key").replaceChildren(h("span", { class: "wheel" }, ...MONTHS.map((mo, m) => h("span", { class: "key" }, h("i", { style: `background:${MONTH_COLORS[m]}` }), state.lang === "en" ? mo : w.months[m]))));
   } else {                  // each 0.5-degree square: the newest month against the same month in earlier years
     const c = d.same_deg, { y, m } = ym(d, d.same_month);
     for (const [x, yy, ...vals] of d.same) {
@@ -647,8 +727,9 @@ function drawCells() {        // "when it burns" and "unusual now": the country'
       const cls = verdict(now, past);
       features.push({ type: "Feature", geometry: square(x * c, yy * c, c), properties: { c: UNUSUAL[cls][1], o: cls === 2 ? 0.35 : 0.8, html: `<b>${FULL[m]} ${y}: ${UNUSUAL[cls][0]}</b>${fmt(now)} detections here; the middle ${FULL[m]} of the ${past.length} years before had ${fmt(mid)}.` } });
     }
-    $("map-note").textContent = `Each square of about ${Math.round(c * 111)} km compares ${FULL[m]} ${y} with the same month in the years before${provisional(d, d.same_month) ? " (near-real-time data, provisional)" : ""}. Squares with almost no fire either way are left out.`;
-    $("map-key").replaceChildren(...UNUSUAL.map(([text, color]) => h("span", { class: "key" }, h("i", { style: `background:${color}` }), text)));
+    const w = words();
+    $("map-note").textContent = w.mapUnusual(Math.round(c * 111), w.months[m], y, provisional(d, d.same_month));
+    $("map-key").replaceChildren(...UNUSUAL.map(([, color], i) => h("span", { class: "key" }, h("i", { style: `background:${color}` }), w.verdicts[i])));
   }
   state.cells = features.length;
   map.getSource("cells").setData({ type: "FeatureCollection", features });
@@ -831,10 +912,10 @@ async function start() {
   $("strip-view").addEventListener("change", e => { state.strip = e.target.value; drawStrip(state.d, state.rec); writeHash(); });
   $("layer").addEventListener("change", e => { state.layer = e.target.value; drawCells(); writeHash(); });
   $("when").addEventListener("change", e => { state.when = e.target.value; drawFires(); writeHash(); });
-  $("lang").addEventListener("change", e => { state.lang = e.target.value; applyLang(); drawAnswer(state.d, state.rec); writeHash(); });
+  $("lang").addEventListener("change", e => { state.lang = e.target.value; applyLang(); render(); drawSeam(state.d); drawCells(); writeHash(); });
   $("use-view").addEventListener("click", () => {
     if (!state.mapReady) return;
-    if (state.map.getZoom() < 4) { $("map-note").textContent = "Zoom in to a region first: the area must be smaller than a continent."; return; }
+    if (state.map.getZoom() < 4) { $("map-note").textContent = words().zoomIn; return; }
     const b = state.map.getBounds();
     setArea({ w: b.getWest(), e: b.getEast(), s: b.getSouth(), n: b.getNorth() });
   });

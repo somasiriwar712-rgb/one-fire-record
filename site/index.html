@@ -120,7 +120,7 @@ STORY: is this month normal, is this season ahead, where does it burn, why the o
     <div id="calendar" class="calendar"></div>
     <div id="legend" class="legend"></div>
     <details>
-      <summary>Read the calendar as a table</summary>
+      <summary data-t="table-sum">Read the calendar as a table</summary>
       <div class="scroll"><table id="table"></table></div>
     </details>
   </section>
@@ -128,12 +128,12 @@ STORY: is this month normal, is this season ahead, where does it burn, why the o
   <section class="two">
     <div>
       <h2 data-t="months-h">Which months burn</h2>
-      <p class="note">The usual number of detections in each calendar month. The bar is the middle year; the line spans the middle half of years.</p>
+      <p class="note" data-t="months-note">The usual number of detections in each calendar month. The bar is the middle year; the line spans the middle half of years.</p>
       <div id="months" class="paper"></div>
     </div>
     <div>
       <h2 data-t="years-h">Which years were worst</h2>
-      <p class="note">Detections per year. Pale bars are estimates from MODIS; their line shows the test error.</p>
+      <p class="note" data-t="years-note">Detections per year. Pale bars are estimates from MODIS; their line shows the test error.</p>
       <div id="years" class="paper"></div>
       <p class="note check" id="years-check"></p>
     </div>
@@ -163,6 +163,6 @@ STORY: is this month normal, is this season ahead, where does it burn, why the o
 </footer>
 
 <div id="tip" class="tip" role="status" hidden></div>
-<script src="app.js?v=3" defer></script>
+<script src="app.js?v=4" defer></script>
 </body>
 </html>
