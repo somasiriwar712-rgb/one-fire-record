@@ -28,6 +28,7 @@
   .paper { background: linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 100% 24px, linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 24px 100%, var(--paper); border: 1px solid var(--rule); border-radius: 6px; }
   ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
   ol.steps li { counter-increment: s; position: relative; padding-left: 56px; margin-bottom: 18px; }
+  ol.steps.tight li { font-size: 21px; margin-bottom: 12px; }
   ol.steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 38px; height: 38px; border-radius: 50%; background: var(--ink); color: var(--paper); font-weight: 700; font-size: 20px; display: grid; place-items: center; }
   table { border-collapse: collapse; font-size: 22px; font-variant-numeric: tabular-nums; width: 100%; }
   th, td { text-align: right; padding: 8px 14px; border-bottom: 1px solid var(--grid); }
@@ -80,12 +81,16 @@
 <section class="slide">
   <h2>We join them, then we test the join</h2>
   <div class="row">
-    <ol class="steps grow">
+    <ol class="steps tight grow" style="max-width:600px">
       <li>Clean both sensors the same way: vegetation fires only, no low-confidence detections.</li>
       <li>On 2012 to 2021, when both flew, measure how many VIIRS detections there are for each MODIS one, <strong>for each calendar month</strong>, because the gap changes with the fire season.</li>
       <li>Scale the MODIS-only years (2000 to 2011) by those factors. From 2012 the record is VIIRS itself, then NOAA-20.</li>
       <li><strong>Hide one shared year, rebuild it from MODIS, compare with what VIIRS saw.</strong> Repeat for every year. Every estimate on the page carries the error from this test.</li>
     </ol>
+    <div style="width:470px">
+      <img class="shot" src="img/pc-seam.png" alt="One fire in Sri Lanka on 29 July 2012: MODIS saw 11 one-kilometre pixels, VIIRS saw 53 pixels of 375 metres" style="width:100%">
+      <p class="small" style="margin-top:10px">The same fire, the same afternoon, every pixel at its true size: MODIS counted 11, VIIRS 53.</p>
+    </div>
   </div>
   <div class="foot"><span>One Fire Record</span><span>3</span></div>
 </section>
@@ -96,7 +101,7 @@
     <img class="shot" src="img/phone-answer.png" alt="The page on a phone: October 2026 in Sri Lanka, fire activity was below normal" style="width:330px">
     <img class="shot" src="img/phone-calendar.png" alt="The burning calendar: 25 years by 12 months" style="height:480px">
     <div class="grow">
-      <p><strong>Is this month normal?</strong> One sentence, and the range of the same month in earlier years.</p>
+      <p><strong>Is this month normal?</strong> One sentence, a comparison anyone can feel ("32% of a normal October"), and the range of the same month in earlier years. Also in Sinhala and Tamil.</p>
       <p><strong>The burning calendar.</strong> Every month since 2000. A cut corner marks a month estimated from MODIS. Switch to see each sensor as it counted.</p>
       <p>Works on a phone, with no login and no app.</p>
     </div>
@@ -105,12 +110,12 @@
 </section>
 
 <section class="slide">
-  <h2>This year's fires, your own area, the worst years</h2>
+  <h2>Where it burns, and how this season compares</h2>
   <div class="row">
-    <img class="shot" src="img/phone-map.png" alt="The fire map: every place NOAA-20 saw fire in Sri Lanka in 2026, on a Sentinel-2 satellite map, newest fires brightest" style="height:470px">
+    <img class="shot" src="img/phone-map.png" alt="The fire globe zoomed to Sri Lanka: every place NOAA-20 saw fire in 2026, on a Sentinel-2 satellite map" style="height:470px">
     <div class="grow">
-      <img class="shot" src="img/pc-months-years.png" alt="Charts: which months burn and which years were worst" style="width:100%">
-      <p style="margin-top:18px"><strong>Every fire NASA saw this year</strong>, on a sharp satellite map: newest brightest, tap one for its date, zoom to street level. Zoom to a district and every chart redraws for it. <strong>Download</strong> the record or the fires as CSV, or the map as a picture.</p>
+      <img class="shot" src="img/pc-pace.png" alt="This season so far: every fire year as a running total since November, 2025-26 below the middle year" style="width:100%">
+      <p style="margin-top:18px"><strong>A 3D globe of every fire NASA saw this year</strong>: tap a country, zoom to a pixel. Switch to <strong>when it burns</strong> or <strong>unusual now</strong>. The season chart counts each fire year from the quietest month. Zoom to a district and every chart redraws; send the link, or follow a place by RSS.</p>
     </div>
   </div>
   <div class="foot"><span>One Fire Record</span><span>5</span></div>
@@ -133,8 +138,8 @@
   <h2>Built on NASA data, ready to grow</h2>
   <div class="row">
     <div class="grow">
-      <p><strong>NASA data:</strong> FIRMS active fire detections from MODIS Collection 6.1 (Terra, Aqua) and VIIRS 375 m (Suomi NPP, NOAA-20), November 2000 to October 2026: 13.4 million detections read for 8 countries. NASA GIBS Blue Marble map.</p>
-      <p><strong>Next:</strong> every country through the FIRMS API, each new month as it arrives, NOAA-21, day and night counted apart.</p>
+      <p><strong>NASA data:</strong> FIRMS active fire detections from MODIS Collection 6.1 (Terra, Aqua) and VIIRS 375 m (Suomi NPP, NOAA-20), November 2000 to October 2026: 13.4 million detections read for 8 countries.</p>
+      <p><strong>Next:</strong> every country (the page already updates itself each week through the FIRMS API), NOAA-21, day and night counted apart.</p>
       <p><strong>Limits we state:</strong> a detection is not a fire or a burned area; estimates carry a measured range; a small area uses its country's factors.</p>
     </div>
     <div style="width:380px">

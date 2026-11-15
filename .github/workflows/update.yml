@@ -1,0 +1,59 @@
+# Every Monday: fetch the newest NOAA-20 months from NASA FIRMS, rebuild the record, test it, save it and publish it.
+# Needs one repository secret, FIRMS_MAP_KEY (the free key from https://firms.modaps.eosdis.nasa.gov/api/map_key/).
+# The key is written to a file outside the repository and never printed.
+name: Update the fire record
+on:
+  schedule:
+    - cron: "0 3 * * 1"   # Mondays 03:00 UTC, 8:30 AM in Sri Lanka
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Keep last run's NASA files, so only new ones download
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/../resources/data/firms
+          key: firms-${{ hashFiles('site/data/index.json') }}-${{ github.run_id }}
+          restore-keys: firms-${{ hashFiles('site/data/index.json') }}-
+      - name: Places
+        run: echo "PLACES=$(python3 -c "import json; print(' '.join(p['id'] for p in json.load(open('site/data/index.json'))))")" >> "$GITHUB_ENV"
+      - name: Yearly NASA files (no login)
+        run: for c in $PLACES; do pipeline/fetch-country.sh "$c"; done
+      - name: Natural Earth country borders (public domain)
+        run: |
+          mkdir -p ../resources/data/borders
+          curl -sSfL --retry 3 -o ../resources/data/borders/ne_10m_admin_0_countries.geojson https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/ne_10m_admin_0_countries.geojson
+      - name: This year's months through the FIRMS API
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+        run: |
+          if [ -z "$FIRMS_MAP_KEY" ]; then echo "::error::Add the FIRMS_MAP_KEY secret: Settings, Secrets and variables, Actions"; exit 1; fi
+          printf '%s' "$FIRMS_MAP_KEY" > ../resources/data/firms-key.txt
+          python3 pipeline/fetch-recent.py $PLACES
+      - name: Join and test
+        run: |
+          python3 pipeline/harmonize.py $PLACES
+          python3 -m unittest discover -s tests -p "test_pipeline.py"
+      - name: Save the new record in the repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add site/data site/feed
+          git diff --cached --quiet || { git commit -q -m "Weekly update: NASA FIRMS data to $(date -u +%Y-%m-%d)"; git push -q; }
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

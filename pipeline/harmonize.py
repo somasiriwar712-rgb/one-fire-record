@@ -3,7 +3,7 @@
 
 Usage:  python3 harmonize.py Sri_Lanka [More_Countries ...]     (names as in the FIRMS file names)
 Reads:  ../../resources/data/firms/<sensor>/<sensor>_<year>_<Country>.csv   (see fetch-country.sh)
-Writes: ../site/data/<Country>.json and ../site/data/index.json, and prints the test.
+Writes: ../site/data/<Country>.json, ../site/data/index.json and ../site/feed/<Country>.xml (RSS), and prints the test.
 
 The join, in short. VIIRS (Suomi NPP) is the reference because VIIRS is the record that continues.
 For the years before it, MODIS counts are multiplied by a factor learned where both flew
@@ -18,11 +18,16 @@ import json
 import os
 import sys
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timezone
+from email.utils import format_datetime
+from xml.sax.saxutils import escape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "..", "..", "resources", "data", "firms")
 SITE = os.path.join(HERE, "..", "site", "data")
+FEED = os.path.join(HERE, "..", "site", "feed")
+URL = "https://somasiriwar712-rgb.github.io/one-fire-record/"
+FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
 SPOT = 300                      # fire dots for the map are kept on a 1/300-degree grid, about 370 m, one VIIRS pixel
 FINE = 0.1                      # degrees, about 11 km: the grid the page gets, so an area can be summed
@@ -186,10 +191,11 @@ def join(months, last):
     last_snpp, last_n20 = last["snpp"], last.get("n20", "")
     both = list(month_range("2019-01", min(last_snpp, last_n20))) if last_n20 else []
     handover = round(sum(snpp.get(m, 0) for m in both) / max(1, sum(n20.get(m, 0) for m in both)), 4)
-    out = {"first": START["modis"], "modis": [], "snpp": [], "n20": [], "joined": [], "lo": [], "hi": [], "src": ""}
+    out = {"first": START["modis"], "modis": [], "terra": [], "snpp": [], "n20": [], "joined": [], "lo": [], "hi": [], "src": ""}
     for m in month_range(START["modis"], max(last.values())):
         mo = int(m[5:])
         out["modis"].append(modis.get(m, 0) if m <= last["modis"] else None)
+        out["terra"].append(terra.get(m, 0) if m <= last["modis"] else None)   # Terra flew the whole time: one instrument, for checking which years were worst
         out["snpp"].append(snpp.get(m, 0) if START["snpp"] <= m <= last_snpp else None)
         out["n20"].append(n20.get(m, 0) if last_n20 and START["n20"] <= m <= last_n20 else None)
         if SNPP_START <= m <= last_snpp:
@@ -215,6 +221,91 @@ def join(months, last):
     return out
 
 
+def cell_values(grid, out, step):
+    """Joined values per map square of step x FINE degrees: {(x, y): {month index: value}}, by the same rule as join()."""
+    index = {m: i for i, m in enumerate(month_range(out["first"], "2099-12")) if i < len(out["src"])}
+    f, src = out["factor"], out["src"]
+    cells = defaultdict(lambda: defaultdict(float))
+    for (sensor, x, y), per_month in grid.items():
+        for m, n in per_month.items():
+            i = index.get(m)
+            s = src[i] if i is not None else ""
+            if sensor == "modis" and s in ("m", "t"):
+                v = n * (f["terra_by_month"] if s == "t" and f["terra_by_month"] else f["by_month"])[int(m[5:]) - 1]
+            elif (sensor, s) == ("snpp", "s"):
+                v = n
+            elif (sensor, s) == ("n20", "n"):
+                v = n * f["handover"]
+            else:
+                continue
+            cells[(x // step, y // step)][i] += v
+    return cells
+
+
+def map_layers(grid, out):
+    """The two map layers: when each 0.2-degree square burns most, and how its newest month compares (0.5-degree squares)."""
+    first_m = int(out["first"][5:]) - 1
+    burn = []
+    for (x, y), per in sorted(cell_values(grid, out, 2).items()):
+        by = [0.0] * 12
+        for i, v in per.items():
+            by[(first_m + i) % 12] += v
+        if sum(by) >= 1:
+            burn.append([x, y, *(round(v) for v in by)])
+    i = max(out["src"].rfind("s"), out["src"].rfind("n"))
+    same = []
+    for (x, y), per in sorted(cell_values(grid, out, 5).items()):
+        vals = [round(per.get(j, 0.0), 1) for j in range(i % 12, i + 1, 12)]   # the newest calendar month, oldest year first
+        if any(vals):
+            same.append([x, y, *vals])
+    return {"burn": burn, "burn_deg": FINE * 2, "same": same, "same_deg": FINE * 5, "same_month": i}
+
+
+def fire_bounds(grid_rows, c):
+    """[[west, south], [east, north]] holding 98% of the country's detections, so a far island with little fire does not zoom the map out."""
+    totals = [(x, y, sum(sum(s.values()) for s in sensors)) for x, y, *sensors in grid_rows]
+    whole = sum(t for *_, t in totals)
+
+    def edge(axis, q):
+        run = 0
+        for row in sorted(totals, key=lambda r: r[axis]):
+            run += row[2]
+            if run >= whole * q:
+                return row[axis] * c
+    return [[round(edge(0, 0.01), 3), round(edge(1, 0.01), 3)], [round(edge(0, 0.99) + c, 3), round(edge(1, 0.99) + c, 3)]]
+
+
+def verdict(joined, i):
+    """The page's answer for month i (drawAnswer in app.js): its rank among the same calendar month in earlier years."""
+    same = sorted(joined[k] for k in range(i - 12, -1, -12))
+    v = joined[i]
+    rank = (sum(x < v for x in same) + sum(x == v for x in same) / 2) / len(same)
+    word = "far below normal" if rank <= 0.1 else "below normal" if rank <= 0.25 else "normal" if rank < 0.75 else "above normal" if rank < 0.9 else "far above normal"
+    mid = sorted(same)[len(same) // 2] if len(same) % 2 else (same[len(same) // 2 - 1] + same[len(same) // 2]) / 2
+    return word, v, round(mid), len(same)
+
+
+def write_feed(out):
+    """RSS, one item per month of the last year: was it normal? Anyone can follow a place with no server and no sign-up."""
+    first_y, first_m = int(out["first"][:4]), int(out["first"][5:])
+    newest = max(out["src"].rfind("s"), out["src"].rfind("n"))
+    items = []
+    for i in range(newest, max(newest - 12, 11), -1):   # the last 12 months, each with at least one earlier year
+        k = first_m - 1 + i
+        y, m = first_y + k // 12, k % 12
+        word, v, mid, n = verdict(out["joined"], i)
+        prov = out["provisional_from"] and f"{y}-{m + 1:02d}" >= out["provisional_from"]
+        title = f"{FULL[m]} {y} in {out['name']}: fire activity was {word}"
+        text = f"{v:,} fire detections. In the {n} earlier {FULL[m]}s on record, the middle year had {mid:,}." + (" Near-real-time data: provisional." if prov else "")
+        items.append(f"<item><title>{escape(title)}</title><link>{URL}#{out['id']}</link><guid isPermaLink=\"false\">{out['id']}-{y}-{m + 1:02d}{'-nrt' if prov else ''}</guid>"
+                     f"<pubDate>{format_datetime(datetime(y + (m == 11), (m + 1) % 12 + 1, 1, tzinfo=timezone.utc))}</pubDate><description>{escape(text)}</description></item>")
+    os.makedirs(FEED, exist_ok=True)
+    with open(os.path.join(FEED, f"{out['id']}.xml"), "w") as fh:
+        fh.write(f'<?xml version="1.0" encoding="utf-8"?>\n<rss version="2.0"><channel><title>One Fire Record: {escape(out["name"])}</title><link>{URL}#{out["id"]}</link>'
+                 f"<description>Is this month's fire activity normal for {escape(out['name'])}? NASA MODIS and VIIRS fire detections joined into one record since 2000.</description>"
+                 f"<lastBuildDate>{format_datetime(datetime.now(timezone.utc))}</lastBuildDate>{''.join(items)}</channel></rss>\n")
+
+
 def run(country):
     months, grid, rows_read, last, provisional, fires = count_country(country)
     if "modis" not in months or "snpp" not in months:
@@ -227,16 +318,21 @@ def run(country):
     lines = sum(sum(1 for _ in open(p)) - 1 for folder in FOLDERS.values() for p in glob.glob(os.path.join(DATA, folder, f"{folder}_*_{country}.csv")))
     assert lines == sum(rows_read.values()), f"{country}: read {sum(rows_read.values())} rows, files hold {lines}"
     index = {m: i for i, m in enumerate(month_range(out["first"], "2099-12")) if i < len(out["joined"])}
+    layers = map_layers(grid, out)
     coarse_deg, grid = coarsen(grid)
     cells = defaultdict(lambda: {"modis": {}, "snpp": {}, "n20": {}})
     for (sensor, x, y), per_month in grid.items():
         cells[(x, y)][sensor] = {index[m]: n for m, n in per_month.items() if m in index}
-    out.update(id=country, name=country.replace("_", " "), rows_read=rows_read, coarse_deg=coarse_deg, provisional_from=provisional,
-               grid=[[x, y, c["modis"], c["snpp"], c["n20"]] for (x, y), c in sorted(cells.items())])
+    grid_rows = [[x, y, c["modis"], c["snpp"], c["n20"]] for (x, y), c in sorted(cells.items())]
+    out.update(id=country, name=country.replace("_", " "), rows_read=rows_read, coarse_deg=coarse_deg, provisional_from=provisional, spot=SPOT,
+               bounds=fire_bounds(grid_rows, coarse_deg))
     os.makedirs(SITE, exist_ok=True)
     path = os.path.join(SITE, f"{country}.json")
     with open(path, "w") as fh:
         json.dump(out, fh, separators=(",", ":"))
+    with open(os.path.join(SITE, f"{country}.map.json"), "w") as fh:   # only the map needs these, so the first screen loads without them
+        json.dump({"coarse_deg": coarse_deg, "grid": grid_rows, **layers}, fh, separators=(",", ":"))
+    write_feed(out)
     if fires:   # per spot: latitude and longitude in 1/SPOT degrees, the last day of year it burned, detections; flat
         with open(os.path.join(SITE, f"{country}.fires.json"), "w") as fh:
             json.dump({"from": last["n20"][:4] + "-01", "to": last["n20"], "year": int(last["n20"][:4]), "scale": SPOT, "pts": [v for p in sorted(fires) for v in (*p, *fires[p])]}, fh, separators=(",", ":"))
@@ -253,7 +349,7 @@ def main():
     done = [c for c in sys.argv[1:] if run(c)]
     if not done:
         sys.exit("nothing written")
-    names = sorted(os.path.basename(p)[:-5] for p in glob.glob(os.path.join(SITE, "*.json")) if not p.endswith(("index.json", ".fires.json")))
+    names = sorted(n for n in (os.path.basename(p)[:-5] for p in glob.glob(os.path.join(SITE, "*.json"))) if "." not in n and n not in ("index", "countries"))   # not Sri_Lanka.fires etc.
     with open(os.path.join(SITE, "index.json"), "w") as fh:
         json.dump([{"id": n, "name": n.replace("_", " ")} for n in names], fh)
 

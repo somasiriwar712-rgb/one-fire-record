@@ -102,7 +102,8 @@ class Borders(unittest.TestCase):
         self.assertFalse(portugal(-3.70, 40.42))   # Madrid, Spain
 
 
-PLACES = sorted(os.path.basename(p)[:-5] for p in glob.glob(os.path.join(SITE, "*.json")) if not p.endswith(("index.json", ".fires.json")))
+PLACES = sorted(n for n in (os.path.basename(p)[:-5] for p in glob.glob(os.path.join(SITE, "*.json"))) if "." not in n and n not in ("index", "countries"))
+FEEDS = os.path.join(SITE, "..", "feed")
 
 
 @unittest.skipUnless(PLACES, "no data files written yet")
@@ -137,12 +138,67 @@ class DataFiles(unittest.TestCase):
                 self.assertTrue(all(pts[k] >= 1 for k in range(3, len(pts), 4)))
                 with open(os.path.join(SITE, f"{place}.json")) as gh:
                     d = json.load(gh)
-                cell = d["coarse_deg"]
-                xs, ys = [g[0] for g in d["grid"]], [g[1] for g in d["grid"]]
+                with open(os.path.join(SITE, f"{place}.map.json")) as gh:
+                    g = json.load(gh)
+                cell = g["coarse_deg"]
+                xs, ys = [r[0] for r in g["grid"]], [r[1] for r in g["grid"]]
+                (w, s), (e, n) = d["bounds"]
+                self.assertTrue(w < e and s < n)
                 for k in range(0, len(pts), 4):   # every dot lies within the country's own fire grid
                     lat, lon = pts[k] / sc, pts[k + 1] / sc
                     self.assertTrue(min(ys) * cell - 0.01 <= lat <= (max(ys) + 1) * cell + 0.01, (lat, lon))
                     self.assertTrue(min(xs) * cell - 0.01 <= lon <= (max(xs) + 1) * cell + 0.01, (lat, lon))
+
+
+    def test_terra_and_spot_size(self):
+        for place in PLACES:
+            with self.subTest(place=place), open(os.path.join(SITE, f"{place}.json")) as fh:
+                d = json.load(fh)
+                self.assertEqual(len(d["terra"]), len(d["modis"]))
+                self.assertTrue(all(t is None and m is None or t <= m for t, m in zip(d["terra"], d["modis"])))   # Terra is part of MODIS
+                self.assertEqual(d["spot"], hz.SPOT)
+
+    def test_map_layers_add_up_to_the_record(self):
+        for place in PLACES:
+            with self.subTest(place=place), open(os.path.join(SITE, f"{place}.json")) as fh, open(os.path.join(SITE, f"{place}.map.json")) as gh:
+                d = {**json.load(fh), **json.load(gh)}
+                self.assertTrue(all(len(r) == 14 and min(r[2:]) >= 0 for r in d["burn"]))
+                burned, joined = sum(sum(r[2:]) for r in d["burn"]), sum(d["joined"])
+                self.assertLess(abs(burned - joined) / joined, 0.01)   # every detection lands in one square, once
+                years = d["same_month"] // 12 + 1
+                self.assertTrue(all(len(r) == 2 + years for r in d["same"]))
+                self.assertAlmostEqual(sum(r[-1] for r in d["same"]), d["joined"][d["same_month"]], delta=2 + 0.01 * d["joined"][d["same_month"]])
+
+    def test_seam_shows_both_sensors(self):
+        for place in PLACES:
+            path = os.path.join(SITE, f"{place}.seam.json")
+            with self.subTest(place=place), open(path) as fh:
+                s = json.load(fh)
+                self.assertGreaterEqual(len(s["modis"]), 5)
+                self.assertGreater(len(s["viirs"]), len(s["modis"]))
+                size = lambda px: sum(p[2] * p[3] for p in px) / len(px)
+                self.assertGreater(size(s["modis"]), 3 * size(s["viirs"]))   # MODIS pixels cover far more ground
+
+    def test_feed_matches_the_page_rule(self):
+        import xml.etree.ElementTree as ET
+        for place in PLACES:
+            with self.subTest(place=place), open(os.path.join(SITE, f"{place}.json")) as fh:
+                d = json.load(fh)
+                items = ET.parse(os.path.join(FEEDS, f"{place}.xml")).getroot().findall("./channel/item")
+                self.assertTrue(1 <= len(items) <= 12)
+                word = hz.verdict(d["joined"], max(d["src"].rfind("s"), d["src"].rfind("n")))[0]
+                self.assertTrue(items[0].find("title").text.endswith(f"fire activity was {word}"))
+
+
+class Verdict(unittest.TestCase):
+    def test_ranks(self):
+        past = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        series = []
+        for v in past:
+            series += [v] + [0] * 11
+        self.assertEqual(hz.verdict(series + [5], len(series))[0], "far below normal")
+        self.assertEqual(hz.verdict(series + [55], len(series))[0], "normal")
+        self.assertEqual(hz.verdict(series + [500], len(series))[0], "far above normal")
 
 
 if __name__ == "__main__":

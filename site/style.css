@@ -97,7 +97,7 @@ th { color: var(--ink-2); font-weight: 600; }
 td.est { color: var(--ink-2); font-style: italic; }
 
 .two { display: grid; gap: 1.5rem; }
-.map { height: 28rem; border: 1px solid var(--rule); border-radius: 4px; background: #0d2343; z-index: 0; }   /* ocean blue: where the browser blends a tile edge, it blends into sea, not a light hairline */
+.map { position: relative; height: 30rem; border: 1px solid var(--rule); border-radius: 4px; background: #070b14; overflow: hidden; }   /* deep space behind the globe */
 .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
 .actions button { padding: 0.55rem 0.9rem; border-radius: 8px; border: 1px solid var(--pen); background: var(--pen); color: #fff; cursor: pointer; transition: background-color 160ms cubic-bezier(0.16, 1, 0.3, 1); }
 .actions button:hover { background: #164a8c; }
@@ -125,7 +125,7 @@ td.est { color: var(--ink-2); font-style: italic; }
   .two { grid-template-columns: 1fr 1fr; }
   .calendar { gap: 2px; font-size: 0.8125rem; }
   .calendar button { height: 1.35rem; }
-  .map { height: 36rem; }
+  .map { height: 38rem; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 @media (forced-colors: active) { .calendar button { border: 1px solid CanvasText; } }
@@ -134,7 +134,6 @@ td.est { color: var(--ink-2); font-style: italic; }
 .map-full-button:hover { background: rgba(20, 24, 31, 0.92); }
 .map.full { position: fixed !important; inset: 0; width: auto; height: 100vh; height: 100dvh; z-index: 3000; border-radius: 0; border: 0; }
 body.map-open { overflow: hidden; }
-.leaflet-popup-content { font-size: 0.8125rem; line-height: 1.4; }
 .purpose { margin: 1rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--grid); color: var(--ink-3); font-size: 0.875rem; max-width: 70ch; }
 /* the one motion: the fire line is drawn like a pen on a recorder when the place or area changes */
 .trace.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: pen 1100ms cubic-bezier(0.16, 1, 0.3, 1) forwards; }
@@ -144,3 +143,65 @@ body.busy main { opacity: 0.55; }
 html { scrollbar-color: var(--rule) var(--desk); }
 @media (pointer: coarse) { .switch span { padding: 0.6rem 0.8rem; } .actions button { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .trace.draw { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; } main { transition: none; } }
+
+/* header tools, language */
+.skip { position: absolute; left: -999px; top: 0; z-index: 4000; background: var(--ink); color: var(--paper); padding: 0.5rem 0.8rem; border-radius: 0 0 6px 0; }
+.skip:focus { left: 0; }
+.top-tools { display: flex; align-items: center; gap: 0.6rem; }
+.lang span { padding: 0.25rem 0.5rem; font-size: 0.8125rem; }
+@media (max-width: 30rem) { .brand { font-size: 0.9375rem; } .place > span { display: none; } select { max-width: 8.5rem; } }
+
+/* this season so far */
+.outlook { margin: 0.75rem 0 0; font-size: 0.875rem; color: var(--ink-2); max-width: 70ch; }
+.outlook b { color: var(--ink); }
+
+/* the map: MapLibre */
+.map-wait { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: #c9d1dc; font-size: 0.875rem; }
+.map-under { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+.map-under .legend { margin: 0.6rem 0 0; }
+.switch.small span { padding: 0.25rem 0.55rem; font-size: 0.8125rem; }
+.map-under .switch { margin-top: 0.6rem; }
+.wheel { display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; }
+.wheel i { width: 0.8rem !important; }
+.maplibregl-popup-content { font: 0.8125rem/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); padding: 0.6rem 1.6rem 0.6rem 0.75rem; }
+.maplibregl-popup-content b { display: block; }
+.maplibregl-ctrl-attrib { font-size: 0.6875rem; }
+.map-full-button { margin: 10px 0 0 10px; }
+
+/* the seam: one fire, two sensors */
+.seam { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }   /* side by side even on a phone: the point is the comparison */
+.seam figure { margin: 0; }
+.seam svg { display: block; width: 100%; max-width: 26rem; height: auto; }
+.seam svg text.on-dark { fill: #fff; font-weight: 600; font-size: 16px; }
+.seam figcaption { margin-top: 0.4rem; font-size: 0.8125rem; color: var(--ink-2); line-height: 1.35; }
+.seam figcaption b { display: block; color: var(--ink); }
+
+/* the worst-year check */
+.check { margin-top: 0.75rem; padding-left: 0.6rem; border-left: 2px solid var(--fire-3); }
+
+/* downloads and the feed */
+a.button { display: inline-block; padding: 0.55rem 0.9rem; border-radius: 8px; border: 1px solid var(--pen); text-decoration: none; }
+a.button.quiet { background: var(--paper); color: var(--pen); }
+a.button.quiet:hover { background: var(--pen-soft); }
+@media (pointer: coarse) { a.button { min-height: 44px; } }
+
+/* the method, folded away */
+.method summary { list-style: none; display: flex; align-items: baseline; gap: 0.5rem; width: auto; color: var(--ink); }
+.method summary::-webkit-details-marker { display: none; }
+.method summary::before { content: "+"; font-weight: 700; color: var(--pen); width: 1rem; }
+.method details[open] summary::before { content: "–"; }
+.method summary h2 { display: inline; margin: 0; }
+@media (max-width: 40rem) {
+  #layer { display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }
+  #layer span { text-align: center; padding-left: 0.3rem; padding-right: 0.3rem; height: 100%; display: grid; place-items: center; }
+}
+/* room kept for what the data fills in, so nothing on the first screen jumps when it arrives */
+.answer h1 { min-height: 3.6em; }
+#answer-detail { min-height: 9em; }
+#pace-note { min-height: 6.6em; }
+#pace { min-height: 262px; }
+#strip { min-height: 252px; }
+@media (min-width: 48rem) { .answer h1 { min-height: 1.2em; } #answer-detail { min-height: 4.5em; } #pace-note { min-height: 3em; } }
+.map-hint { position: absolute; left: 50%; bottom: 2.4rem; transform: translate(-50%, 0.4rem); margin: 0; padding: 0.4rem 0.75rem; border-radius: 999px; background: rgba(20, 24, 31, 0.82); color: #fff; font-size: 0.8125rem; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 240ms ease-out, transform 240ms cubic-bezier(0.16, 1, 0.3, 1); z-index: 2; }
+.map-hint.on { opacity: 1; transform: translate(-50%, 0); }
+@media (prefers-reduced-motion: reduce) { .map-hint { transition: none; } }

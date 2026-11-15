@@ -6,7 +6,7 @@ set -u
 country="${1:?country name, e.g. Sri_Lanka}"
 out="$(cd "$(dirname "$0")/../../resources/data" && pwd)/firms"
 base="https://firms.modaps.eosdis.nasa.gov/data/country"
-last_year=2025   # newest yearly file FIRMS had on 2026-11-13
+last_year=$(( $(date +%Y) - 1 ))   # last year's file; this year comes from fetch-recent.py. A year NASA has not published yet is a 404 and is tried again next run
 fail=0
 fetch() { # sensor first_year
   mkdir -p "$out/$1"

@@ -9,7 +9,7 @@ import { join } from "node:path";
 const base = process.argv[2] || "http://localhost:4180/";
 const profile = mkdtempSync(join(tmpdir(), "fire-check-"));
 const port = 9334;
-const chrome = spawn("chromium", ["--headless=new", `--remote-debugging-port=${port}`, "--no-first-run", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+const chrome = spawn("chromium", ["--headless=new", `--remote-debugging-port=${port}`, "--no-first-run", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist", `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let failed = 0;
 
@@ -44,29 +44,49 @@ try {
     for (const place of places) {
       problems.length = 0;
       await send("Page.navigate", { url: `${base}?check=${Date.now()}#${place.id}` });
-      const ready = await run(`(async () => { for (let i = 0; i < 120; i++) { if (typeof state !== "undefined" && state.d?.id === ${JSON.stringify(place.id)} && state.fires && state.dots) return true; await new Promise(r => setTimeout(r, 100)); } return false; })()`);
+      const ready = await run(`(async () => {
+        const wait = () => new Promise(r => setTimeout(r, 100));
+        for (let i = 0; i < 150 && !(typeof state !== "undefined" && state.d?.id === ${JSON.stringify(place.id)} && state.rec); i++) await wait();
+        document.getElementById("map").scrollIntoView();   // the globe loads near the screen
+        for (let i = 0; i < 300 && !(state.mapReady && state.fires?.id === ${JSON.stringify(place.id)}); i++) await wait();
+        return !!(state.mapReady && state.fires);
+      })()`);
       const r = ready ? await run(`(async () => {
-        const wait = ms => new Promise(r => setTimeout(r, ms)), d = state.d, out = {};
+        const wait = ms => new Promise(r => setTimeout(r, ms)), d = state.d, map = state.map, out = {}, $ = id => document.getElementById(id);
         out.overflow = document.documentElement.scrollWidth > innerWidth;
-        out.answer = /fire activity was (far )?(below|above)? ?normal\\./.test(document.getElementById("answer").textContent);
+        out.answer = /fire activity was (far )?(below|above)? ?normal\\./.test($("answer").textContent);
         const years = +d.first.slice(0, 4), lastYear = years + Math.floor((+d.first.slice(5) - 1 + d.joined.length - 1) / 12);
         out.calendar = document.querySelectorAll("#calendar button").length === (lastYear - years + 1) * 12;
-        out.charts = ["#strip svg", "#months svg", "#years svg"].every(s => document.querySelector(s));
-        const all = state.dots.age.length;
-        document.querySelector('#when input[value="30"]').click(); await wait(200);
-        const recent = state.dots.age.length;
-        document.querySelector('#when input[value="366"]').click(); await wait(200);
-        out.timeSwitch = all > 0 && recent <= all && state.dots.age.length === all;
+        out.charts = ["#pace svg", "#strip svg", "#months svg", "#years svg"].every(s => document.querySelector(s));
+        out.paceWords = /had [\\d,]+: the/.test($("pace-note").textContent);
+        out.seam = document.querySelectorAll("#seam svg").length === 2 && /times more/.test($("seam-note").textContent);
+        out.yearsCheck = $("years-check").textContent.length > 20;
+        document.querySelector('#strip-view input[value="counted"]').click(); await wait(50);
+        out.stripSwitch = document.querySelectorAll("#strip polyline").length >= 2 && /As each sensor counted/.test($("strip-note").textContent);
+        document.querySelector('#strip-view input[value="joined"]').click();
+        const all = state.shown;
+        document.querySelector('#when input[value="30"]').click(); await wait(100);
+        const recent = state.shown;
+        out.timeSwitch = all > 0 && recent <= all && JSON.stringify(map.getFilter("dots")).includes("30");
+        document.querySelector('#when input[value="366"]').click(); await wait(100);
+        document.querySelector('#layer input[value="burn"]').click(); await wait(100);
+        out.burnLayer = state.cells > 0 && map.getLayoutProperty("cells", "visibility") === "visible" && map.getLayoutProperty("dots", "visibility") === "none";
+        document.querySelector('#layer input[value="unusual"]').click(); await wait(100);
+        out.unusualLayer = state.cells >= 0 && /compares/.test($("map-note").textContent);
+        out.hashLayer = location.hash.includes("layer=unusual");
+        document.querySelector('#layer input[value="fires"]').click(); await wait(100);
+        out.firesBack = map.getLayoutProperty("dots", "visibility") === "visible" && !location.hash.includes("layer=");
         const b = document.querySelector(".map-full-button"); b.click(); await wait(200);
-        const box = document.getElementById("map").getBoundingClientRect();
+        const box = $("map").getBoundingClientRect();
         out.fullScreen = Math.round(box.width) === innerWidth && Math.round(box.height) === innerHeight;
         b.click(); await wait(200);
         out.fullScreenCloses = !document.body.classList.contains("map-open");
-        state.map.setView(state.map.getCenter(), state.map.getZoom() + 2, { animate: false }); await wait(300);
-        document.getElementById("use-view").click(); await wait(400);
-        out.area = /your area/.test(document.getElementById("answer").textContent) && !document.getElementById("clear-view").hidden;
-        document.getElementById("clear-view").click(); await wait(300);
-        out.areaClears = !state.area && !/your area/.test(document.getElementById("answer").textContent);
+        map.jumpTo({ zoom: Math.max(5, map.getZoom() + 1.5) }); await wait(300);
+        $("use-view").click(); await wait(400);
+        out.area = /your area/.test($("answer").textContent) && !$("clear-view").hidden && location.hash.includes("area=");
+        $("clear-view").click(); await wait(300);
+        out.areaClears = !state.area && !/your area/.test($("answer").textContent);
+        out.feed = $("feed").getAttribute("href") === "feed/" + d.id + ".xml" && (await fetch($("feed").href)).ok;
         out.dots = all;
         return out;
       })()`) : { loaded: false };
@@ -82,6 +102,6 @@ try {
 } finally {
   chrome.kill();
   await sleep(300);
-  rmSync(profile, { recursive: true, force: true });
+  rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
 }
 process.exit(failed ? 1 : 0);

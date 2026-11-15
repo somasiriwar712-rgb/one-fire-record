@@ -4,51 +4,114 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>One Fire Record</title>
-<meta name="description" content="NASA's MODIS and VIIRS fire detections joined into one tested monthly record. See if this month is normal for your place.">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="style.css">
+<meta name="description" content="NASA's MODIS and VIIRS fire detections joined into one tested monthly record since 2000. See if this month and this season are normal for your place.">
+<meta name="theme-color" content="#fbfcf8">
+<link rel="preconnect" href="https://tiles.maps.eox.at" crossorigin>
+<link rel="stylesheet" href="style.css?v=2">
+<script>
+// start the place list and the record now, while the page and its script load
+(function () {
+  var id = decodeURIComponent(location.hash.slice(1)).split("&")[0] || "Sri_Lanka";
+  var get = function (url) { return fetch(url, { cache: "no-cache" }).then(function (r) { if (!r.ok) throw 0; return r.json(); }).catch(function () { return null; }); };
+  window.firstRecord = { id: id, index: get("data/index.json"), data: /^[A-Za-z_]+$/.test(id) ? get("data/" + id + ".json") : Promise.resolve(null) };
+})();
+</script>
 </head>
 <body>
 <!--
 THESIS: one continuous pen trace from two satellite eras, with its error drawn in. Refuses the dark dashboard of glowing fire cards.
 OWN-WORLD: a chart recorder. Pale chart paper with a fine green grid, blue-black ink, each satellite a labelled channel on a tape, one orange ramp for fire, pen-blue controls.
-STORY: the visitor learns that the fire record is two instruments, sees them become one, and reads whether this month is normal for their place.
-FIRST VIEWPORT: the place picker, then one sentence that answers "is this month normal", then the 25-year trace with its sensor tape.
-FORM: strip-chart recorder paper, candidate 6 of 7, seed 2f16307d.
-FINISH: two inspection rounds at phone and PC size, the detector once, then stop.
+STORY: is this month normal, is this season ahead, where does it burn, why the old record looked too calm, then the whole record.
 -->
+<a class="skip" href="#answer">Skip to the answer</a>
 <header class="top">
   <div class="wrap">
     <p class="brand">One Fire Record</p>
-    <label class="place">
-      <span>Place</span>
-      <select id="place" aria-label="Country"></select>
-    </label>
+    <div class="top-tools">
+      <fieldset class="switch lang" id="lang">
+        <legend class="sr">Language</legend>
+        <label><input type="radio" name="lang" value="en" checked><span lang="en">EN</span></label>
+        <label><input type="radio" name="lang" value="si"><span lang="si">සිං</span></label>
+        <label><input type="radio" name="lang" value="ta"><span lang="ta">தமி</span></label>
+      </fieldset>
+      <label class="place">
+        <span data-t="place">Place</span>
+        <select id="place" aria-label="Country"></select>
+      </label>
+    </div>
   </div>
 </header>
 
 <main class="wrap">
   <section class="answer" aria-live="polite">
-    <h1 id="answer">Loading the fire record…</h1>
+    <h1 id="answer" tabindex="-1">Loading the fire record…</h1>
     <p id="answer-detail" class="lede"></p>
     <div id="range" class="range" role="img"></div>
-    <p class="purpose">NASA has counted fires from space since 2000, with two kinds of satellite that count very differently. This page puts them into one record, so this year can be fairly compared with the past, and shows where it is burning now.</p>
+    <p class="purpose" data-t="purpose">NASA has counted fires from space since 2000 with two kinds of satellite that count very differently. This page joins them into one record, so this year can be fairly compared with the past.</p>
   </section>
 
   <section>
-    <h2>One record, four satellites</h2>
-    <p class="note">Fire detections per month. Before 2012 the values are MODIS counts scaled to what VIIRS would have seen; the shaded band is where 8 of 10 real values fell when we tested the scaling.</p>
+    <h2 data-t="pace-h">This season so far</h2>
+    <p class="note" id="pace-note"></p>
+    <div id="pace" class="paper"></div>
+    <p class="outlook" id="outlook"></p>
+  </section>
+
+  <section class="map-section">
+    <div class="row">
+      <h2 data-t="map-h">Where it burns</h2>
+      <fieldset class="switch" id="layer">
+        <legend class="sr">What the map shows</legend>
+        <label><input type="radio" name="layer" value="fires" checked><span data-t="l-fires">Fires this year</span></label>
+        <label><input type="radio" name="layer" value="burn"><span data-t="l-burn">When it burns</span></label>
+        <label><input type="radio" name="layer" value="unusual"><span data-t="l-unusual">Unusual now</span></label>
+      </fieldset>
+    </div>
+    <p class="note" id="map-note">Spin the globe, scroll or pinch to zoom, and tap a country to open its record.</p>
+    <div id="map" class="map" role="region" aria-label="Fire map"><p class="map-wait" id="map-wait">Loading the globe…</p></div>
+    <div class="map-under">
+      <div class="legend" id="map-key"></div>
+      <fieldset class="switch small" id="when">
+        <legend class="sr">Which fires to show</legend>
+        <label><input type="radio" name="when" value="30"><span data-t="w-30">Last 30 days</span></label>
+        <label><input type="radio" name="when" value="91"><span data-t="w-91">3 months</span></label>
+        <label><input type="radio" name="when" value="366" checked><span data-t="w-366">Whole year</span></label>
+      </fieldset>
+    </div>
+    <div class="actions">
+      <button id="use-view" type="button" data-t="use-view">Use this view as my area</button>
+      <button id="clear-view" type="button" class="quiet" hidden data-t="clear-view">Back to the whole country</button>
+      <button id="share" type="button" class="quiet" data-t="share">Copy a link to this view</button>
+    </div>
+  </section>
+
+  <section>
+    <h2 data-t="seam-h">Why the old record looks too calm</h2>
+    <p class="note" id="seam-note"></p>
+    <div id="seam" class="seam"></div>
+  </section>
+
+  <section>
+    <div class="row">
+      <h2 data-t="strip-h">One record, four satellites</h2>
+      <fieldset class="switch" id="strip-view">
+        <legend class="sr">Which record to draw</legend>
+        <label><input type="radio" name="strip" value="joined" checked><span data-t="joined">Joined</span></label>
+        <label><input type="radio" name="strip" value="counted"><span data-t="as-counted">As counted</span></label>
+      </fieldset>
+    </div>
+    <p class="note" id="strip-note"></p>
     <div id="strip" class="paper"></div>
   </section>
 
   <section>
     <div class="row">
-      <h2>Burning calendar</h2>
+      <h2 data-t="cal-h">Burning calendar</h2>
       <fieldset class="switch" id="view">
         <legend class="sr">Which record to show</legend>
-        <label><input type="radio" name="view" value="joined" checked><span>Joined</span></label>
-        <label><input type="radio" name="view" value="modis"><span>MODIS only</span></label>
-        <label><input type="radio" name="view" value="viirs"><span>VIIRS only</span></label>
+        <label><input type="radio" name="view" value="joined" checked><span data-t="joined">Joined</span></label>
+        <label><input type="radio" name="view" value="modis"><span>MODIS</span></label>
+        <label><input type="radio" name="view" value="viirs"><span>VIIRS</span></label>
       </fieldset>
     </div>
     <p class="note" id="calendar-note"></p>
@@ -62,52 +125,42 @@ FINISH: two inspection rounds at phone and PC size, the detector once, then stop
 
   <section class="two">
     <div>
-      <h2>Which months burn</h2>
+      <h2 data-t="months-h">Which months burn</h2>
       <p class="note">The usual number of detections in each calendar month. The bar is the middle year; the line spans the middle half of years.</p>
       <div id="months" class="paper"></div>
     </div>
     <div>
-      <h2>Which years were worst</h2>
-      <p class="note">Detections per year. Years before 2012 are estimates; the line shows their test error.</p>
+      <h2 data-t="years-h">Which years were worst</h2>
+      <p class="note">Detections per year. Pale bars are estimates from MODIS; their line shows the test error.</p>
       <div id="years" class="paper"></div>
+      <p class="note check" id="years-check"></p>
     </div>
   </section>
 
-  <section>
-    <div class="row">
-      <h2>Where it burned this year</h2>
-      <fieldset class="switch" id="when">
-        <legend class="sr">Which fires to show</legend>
-        <label><input type="radio" name="when" value="30"><span>Last 30 days</span></label>
-        <label><input type="radio" name="when" value="91"><span>3 months</span></label>
-        <label><input type="radio" name="when" value="366" checked><span>Whole year</span></label>
-      </fieldset>
-    </div>
-    <p class="note" id="map-note">Move and zoom the map, then use the view as your area. Every chart above redraws for it, with the factors learned for the whole country.</p>
-    <div id="map" class="map"></div>
-    <div class="legend" id="map-key"></div>
+  <section class="actions-section">
+    <h2 data-t="take-h">Take it with you</h2>
     <div class="actions">
-      <button id="use-view" type="button">Use this view as my area</button>
-      <button id="clear-view" type="button" class="quiet" hidden>Back to the whole country</button>
-      <button id="download" type="button" class="quiet">Download the monthly record (CSV)</button>
-      <button id="download-fires" type="button" class="quiet">Download this year's fires (CSV)</button>
-      <button id="save-map" type="button" class="quiet">Save the map as a picture</button>
+      <button id="download" type="button" class="quiet" data-t="dl-record">Monthly record (CSV)</button>
+      <button id="download-fires" type="button" class="quiet" data-t="dl-fires">This year's fires (CSV)</button>
+      <button id="save-map" type="button" class="quiet" data-t="dl-map">Map picture (PNG)</button>
+      <a id="feed" class="button quiet" href="feed/Sri_Lanka.xml" data-t="feed">Follow this place (RSS)</a>
     </div>
   </section>
 
   <section class="method">
-    <h2>How we joined them</h2>
-    <div id="method"></div>
+    <details id="method-box">
+      <summary><h2 data-t="method-h">How we know: method, tests and limits</h2></summary>
+      <div id="method"></div>
+    </details>
   </section>
 </main>
 
 <footer class="wrap foot">
   <p>We acknowledge the use of data and/or imagery from NASA's Fire Information for Resource Management System (FIRMS) (<a href="https://earthdata.nasa.gov/firms">https://earthdata.nasa.gov/firms</a>), part of NASA's Land, Atmosphere Near real-time Capability for Earth observations (LANCE) (<a href="https://earthdata.nasa.gov/lance">https://earthdata.nasa.gov/lance</a>) and NASA's Earth Science Data and Information System (ESDIS).</p>
-  <p>Maps: Sentinel-2 cloudless 2020 by EOX (contains modified Copernicus Sentinel data), place names from OpenStreetMap, and NASA GIBS Blue Marble. Built for the NASA Space Apps Challenge 2026, challenge "Harmonization of MODIS and VIIRS Hot Spots". Not a NASA product; NASA does not endorse it. Built with help from an AI assistant (Claude).</p>
+  <p>Maps: Sentinel-2 cloudless 2020 by EOX (contains modified Copernicus Sentinel data), place names from OpenStreetMap, country outlines from Natural Earth, MapLibre. Built for the NASA Space Apps Challenge 2026, challenge "Harmonization of MODIS and VIIRS Hot Spots". Not a NASA product; NASA does not endorse it. Built with help from an AI assistant (Claude).</p>
 </footer>
 
 <div id="tip" class="tip" role="status" hidden></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
-<script src="app.js" defer></script>
+<script src="app.js?v=2" defer></script>
 </body>
 </html>

@@ -6,9 +6,12 @@ const FULL = ["January", "February", "March", "April", "May", "June", "July", "A
 const SOURCE = { t: "MODIS Terra, scaled", m: "MODIS, scaled", s: "VIIRS Suomi NPP", n: "VIIRS NOAA-20, scaled" };
 const FIRE = [1, 2, 3, 4, 5, 6, 7].map(k => `var(--fire-${k})`);
 const BLUE = [1, 2, 3, 4, 5, 6, 7].map(k => `var(--blue-${k})`);
+const MAPLIBRE = "https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/5.24.1/";
+const EOX = "https://tiles.maps.eox.at/wmts/1.0.0/";
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString("en");
-const state = { d: null, rec: null, view: "joined", area: null, cache: {}, map: null, fires: null, dots: null, when: "366" };
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const state = { d: null, rec: null, view: "joined", strip: "joined", layer: "fires", when: "366", area: null, cache: {}, map: null, fires: null, lang: "en" };
 
 // ---------- small builders ----------
 function h(tag, attrs = {}, ...kids) {
@@ -27,6 +30,7 @@ function quantile(sorted, q) {
   const pos = q * (sorted.length - 1), lo = Math.floor(pos);
   return sorted[lo] + (sorted[Math.min(lo + 1, sorted.length - 1)] - sorted[lo]) * (pos - lo);
 }
+const median = vals => quantile([...vals].sort((a, b) => a - b), 0.5);
 function nice(x) {            // 1, 2, 5, 10, 20, 50 ... at or near x
   if (x < 1) return 1;
   const p = 10 ** Math.floor(Math.log10(x)), r = x / p;
@@ -44,12 +48,79 @@ function breaks(values) {     // up to six class limits, closer together at the 
 }
 const classOf = (v, br) => br.filter(b => b < v).length;                 // 0 .. br.length
 const ramp = (cls, br, colors) => colors[Math.round(cls * 6 / br.length)];
+function oklch(L, C, hue) {   // OKLCH to sRGB hex: equal steps of hue look equally bright, so no month shouts
+  const r = hue * Math.PI / 180, a = C * Math.cos(r), b = C * Math.sin(r);
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, q = (L - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return "#" + [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * q, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * q, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * q]
+    .map(v => { v = Math.min(1, Math.max(0, v)); v = v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055; return Math.round(v * 255).toString(16).padStart(2, "0"); }).join("");
+}
+const MONTH_COLORS = MONTHS.map((_, m) => oklch(0.76, 0.14, 25 + m * 30));   // a colour wheel: neighbouring months get neighbouring colours
+const UNUSUAL = [["far below normal", "#2f6fb5"], ["below normal", "#8db8e3"], ["normal", "#d8dcd4"], ["above normal", "#f2995f"], ["far above normal", "#d33a1c"]];
+function verdict(v, same) {   // where v falls among the same month in earlier years; the same rule as verdict() in harmonize.py
+  const sorted = [...same].sort((a, b) => a - b);
+  const rank = (sorted.filter(x => x < v).length + sorted.filter(x => x === v).length / 2) / sorted.length;
+  return rank <= 0.1 ? 0 : rank <= 0.25 ? 1 : rank < 0.75 ? 2 : rank < 0.9 ? 3 : 4;
+}
+
+// ---------- words: English, Sinhala, Tamil for the main lines ----------
+const T = {
+  en: {
+    area: "your area", lowest: "lowest", highest: "highest", verdicts: ["far below normal", "below normal", "normal", "above normal", "far above normal"], months: FULL,
+    answer: (month, where, word) => `${month} in ${where}: fire activity was ${word}.`,
+    feel: (r, mon) => r < 0.95 ? `, ${Math.round(r * 100)}% of a normal ${mon}` : r <= 1.05 ? `, about a normal ${mon}` : `, ${r.toFixed(1)} times a normal ${mon}`,
+    detail: (v, feel, n, mon, mid, q1, q3) => `${v} fire detections${feel}. In the ${n} earlier ${mon}s on record, the middle year had ${mid} and the middle half of years had ${q1} to ${q3}.`,
+    fresh: (mon, y, prov) => prov ? ` ${mon} ${y} is the newest full month and comes from NASA's near-real-time files, so treat it as provisional.` : ` ${mon} ${y} is the newest full month in NASA's science-quality files.`,
+  },
+  si: {
+    place: "ස්ථානය", purpose: "NASA චන්ද්‍රිකා 2000 සිට අභ්‍යවකාශයේ සිට ගිනි ගණන් කරයි. එකිනෙකට වෙනස් ලෙස ගණන් කරන චන්ද්‍රිකා වර්ග දෙකක දත්ත මෙම පිටුව එක් වාර්තාවක් ලෙස එකතු කරයි, එවිට මේ වසර අතීතය සමඟ සාධාරණව සැසඳිය හැක.",
+    "pace-h": "මේ කන්නය මෙතෙක්", "map-h": "ගිනි ඇවිලෙන තැන්", "l-fires": "මේ වසරේ ගිනි", "l-burn": "ගිනි ඇවිලෙන කාලය", "l-unusual": "දැන් අසාමාන්‍ය",
+    "w-30": "අවසන් දින 30", "w-91": "මාස 3", "w-366": "මුළු වසර", "use-view": "මෙම දර්ශනය මගේ ප්‍රදේශය ලෙස ගන්න", "clear-view": "මුළු රටට ආපසු", share: "මෙම දර්ශනයට සබැඳිය පිටපත් කරන්න",
+    "seam-h": "පැරණි වාර්තාව ඉතා සන්සුන් ලෙස පෙනෙන්නේ ඇයි", "strip-h": "එක් වාර්තාවක්, චන්ද්‍රිකා හතරක්", joined: "එකතු කළ", "as-counted": "ගණන් කළ ලෙස",
+    "cal-h": "ගිනි දින දර්ශනය", "months-h": "ගිනි ඇවිලෙන මාස", "years-h": "නරකම වසර", "take-h": "රැගෙන යන්න",
+    "dl-record": "මාසික වාර්තාව (CSV)", "dl-fires": "මේ වසරේ ගිනි (CSV)", "dl-map": "සිතියම් පින්තූරය (PNG)", feed: "මෙම ස්ථානය අනුගමනය කරන්න (RSS)", "method-h": "අප දන්නේ කෙසේද: ක්‍රමය, පරීක්ෂණ සහ සීමා",
+    verdicts: ["සාමාන්‍යයට වඩා බොහෝ අඩු", "සාමාන්‍යයට වඩා අඩු", "සාමාන්‍ය", "සාමාන්‍යයට වඩා වැඩි", "සාමාන්‍යයට වඩා බොහෝ වැඩි"],
+    answer: (month, where, word) => `${month}, ${where}: ගිනි ක්‍රියාකාරිත්වය ${word} විය.`,
+    names: { Sri_Lanka: "ශ්‍රී ලංකාව", Nepal: "නේපාලය", Thailand: "තායිලන්තය", Kenya: "කෙන්යාව", Greece: "ග්‍රීසිය", Portugal: "පෘතුගාලය", Chile: "චිලී", Argentina: "ආර්ජන්ටිනාව" },
+    area: "ඔබේ ප්‍රදේශය", lowest: "අඩුම", highest: "වැඩිම",
+    feel: (r, mon) => r < 0.95 ? `, සාමාන්‍ය ${mon} මාසයක ${Math.round(r * 100)}%` : r <= 1.05 ? `, සාමාන්‍ය ${mon} මාසයක් පමණ` : `, සාමාන්‍ය ${mon} මාසයක ${r.toFixed(1)} ගුණයක්`,
+    detail: (v, feel, n, mon, mid, q1, q3) => `ගිනි හඳුනාගැනීම් ${v}ක්${feel}. වාර්තාවේ ඇති පෙර ${mon} මාස ${n} තුළ, මැද වසරේ ${mid}ක් ද, වසරවලින් මැද භාගයේ ${q1} සිට ${q3} දක්වා ද විය.`,
+    fresh: (mon, y, prov) => prov ? ` ${mon} ${y} නවතම සම්පූර්ණ මාසයයි. එය NASA හි ආසන්න තත්‍ය කාලීන දත්තවලින් පැමිණෙන බැවින් තාවකාලික ලෙස සලකන්න.` : ` ${mon} ${y} යනු NASA හි විද්‍යාත්මක තත්ත්වයේ දත්තවල නවතම සම්පූර්ණ මාසයයි.`,
+    months: ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"],
+  },
+  ta: {
+    place: "இடம்", purpose: "NASA 2000 முதல் விண்வெளியிலிருந்து தீயைக் கணக்கிடுகிறது, மிகவும் வேறுபட்ட முறையில் கணக்கிடும் இரண்டு வகை செயற்கைக்கோள்களுடன். இந்தப் பக்கம் அவற்றை ஒரே பதிவாக இணைக்கிறது, அதனால் இந்த ஆண்டை கடந்த காலத்துடன் நியாயமாக ஒப்பிடலாம்.",
+    "pace-h": "இந்தப் பருவம் இதுவரை", "map-h": "எங்கே எரிகிறது", "l-fires": "இந்த ஆண்டின் தீ", "l-burn": "எப்போது எரிகிறது", "l-unusual": "இப்போது வழக்கத்திற்கு மாறானது",
+    "w-30": "கடைசி 30 நாட்கள்", "w-91": "3 மாதங்கள்", "w-366": "முழு ஆண்டு", "use-view": "இந்தக் காட்சியை என் பகுதியாகப் பயன்படுத்து", "clear-view": "முழு நாட்டிற்குத் திரும்பு", share: "இந்தக் காட்சிக்கான இணைப்பை நகலெடு",
+    "seam-h": "பழைய பதிவு ஏன் மிகவும் அமைதியாகத் தெரிகிறது", "strip-h": "ஒரே பதிவு, நான்கு செயற்கைக்கோள்கள்", joined: "இணைக்கப்பட்டது", "as-counted": "கணக்கிட்டபடி",
+    "cal-h": "தீ நாட்காட்டி", "months-h": "எந்த மாதங்கள் எரிகின்றன", "years-h": "மோசமான ஆண்டுகள்", "take-h": "எடுத்துச் செல்லுங்கள்",
+    "dl-record": "மாதாந்திரப் பதிவு (CSV)", "dl-fires": "இந்த ஆண்டின் தீ (CSV)", "dl-map": "வரைபடப் படம் (PNG)", feed: "இந்த இடத்தைப் பின்தொடருங்கள் (RSS)", "method-h": "நாங்கள் எப்படி அறிவோம்: முறை, சோதனைகள், வரம்புகள்",
+    verdicts: ["இயல்பை விட மிகக் குறைவு", "இயல்பை விடக் குறைவு", "இயல்பானது", "இயல்பை விட அதிகம்", "இயல்பை விட மிக அதிகம்"],
+    answer: (month, where, word) => `${month}, ${where}: தீ செயல்பாடு ${word}.`,
+    names: { Sri_Lanka: "இலங்கை", Nepal: "நேபாளம்", Thailand: "தாய்லாந்து", Kenya: "கென்யா", Greece: "கிரீஸ்", Portugal: "போர்ச்சுகல்", Chile: "சிலி", Argentina: "அர்ஜென்டினா" },
+    area: "உங்கள் பகுதி", lowest: "குறைந்தது", highest: "அதிகம்",
+    feel: (r, mon) => r < 0.95 ? `, வழக்கமான ${mon} மாதத்தின் ${Math.round(r * 100)}%` : r <= 1.05 ? `, ஏறக்குறைய வழக்கமான ${mon} மாதம் போல` : `, வழக்கமான ${mon} மாதத்தின் ${r.toFixed(1)} மடங்கு`,
+    detail: (v, feel, n, mon, mid, q1, q3) => `${v} தீ கண்டறிதல்கள்${feel}. பதிவில் உள்ள முந்தைய ${n} ${mon} மாதங்களில், நடு ஆண்டில் ${mid}; ஆண்டுகளின் நடுப் பாதியில் ${q1} முதல் ${q3} வரை.`,
+    fresh: (mon, y, prov) => prov ? ` ${mon} ${y} மிகச் சமீபத்திய முழு மாதம்; இது NASA-வின் கிட்டத்தட்ட நிகழ்நேரத் தரவிலிருந்து வருவதால், தற்காலிகமானதாகக் கருதுங்கள்.` : ` ${mon} ${y} NASA-வின் அறிவியல் தரத் தரவில் மிகச் சமீபத்திய முழு மாதம்.`,
+    months: ["ஜனவரி", "பிப்ரவரி", "மார்ச்", "ஏப்ரல்", "மே", "ஜூன்", "ஜூலை", "ஆகஸ்ட்", "செப்டம்பர்", "அக்டோபர்", "நவம்பர்", "டிசம்பர்"],
+  },
+};
+const placeName = d => T[state.lang].names?.[d.id] ?? d.name;
+function applyLang() {
+  const t = T[state.lang];
+  document.documentElement.lang = state.lang;
+  document.querySelectorAll("#place option").forEach(o => { o.textContent = T[state.lang].names?.[o.value] ?? o.value.replace(/_/g, " "); });
+  document.querySelectorAll("[data-t]").forEach(e => {
+    e.dataset.en ??= e.textContent;
+    e.textContent = t[e.dataset.t] ?? e.dataset.en;
+  });
+}
 
 // ---------- the record ----------
 const ym = (d, i) => { const k = +d.first.slice(5) - 1 + i; return { y: +d.first.slice(0, 4) + Math.floor(k / 12), m: k % 12 }; };
 const label = (d, i) => { const { y, m } = ym(d, i); return `${MONTHS[m]} ${y}`; };
 const provisional = (d, i) => { const { y, m } = ym(d, i); return !!d.provisional_from && `${y}-${String(m + 1).padStart(2, "0")}` >= d.provisional_from; };
 const source = (d, i) => SOURCE[d.src[i]] + (provisional(d, i) ? ", near-real-time (provisional)" : "");
+const newest = d => Math.max(d.src.lastIndexOf("s"), d.src.lastIndexOf("n"));
 
 function counts(d, area) {    // monthly detections per sensor: the whole country, or the squares inside an area
   if (!area) return { modis: d.modis, snpp: d.snpp, n20: d.n20 };
@@ -62,16 +133,16 @@ function counts(d, area) {    // monthly detections per sensor: the whole countr
   for (const key in out) out[key] = out[key].map((v, i) => (d[key][i] === null ? null : v));   // not flying is not zero
   return out;
 }
-
+const factorOf = (d, i) => (d.src[i] === "t" && d.factor.terra_by_month ? d.factor.terra_by_month : d.factor.by_month)[ym(d, i).m];
 function join(d, c) {         // the same rule as join() in pipeline/harmonize.py
-  const f = d.factor, joined = [], lo = [], hi = [];
+  const joined = [], lo = [], hi = [];
   for (let i = 0; i < c.modis.length; i++) {
-    const src = d.src[i], mo = ym(d, i).m;
+    const src = d.src[i];
     let v, band = [1, 1];
     if (src === "s") v = c.snpp[i] || 0;
-    else if (src === "n") v = (c.n20[i] || 0) * f.handover;
+    else if (src === "n") v = (c.n20[i] || 0) * d.factor.handover;
     else {
-      v = c.modis[i] * (src === "t" && f.terra_by_month ? f.terra_by_month : f.by_month)[mo];
+      v = c.modis[i] * factorOf(d, i);
       band = d.test[src === "t" ? "band_terra" : "band"][c.modis[i] >= 10 ? "busy" : "thin"];
     }
     joined.push(Math.round(v)); lo.push(Math.round(v * band[0])); hi.push(Math.round(v * band[1]));
@@ -83,6 +154,11 @@ function shown(d, rec, view, i) {   // the value a view shows for month i, or nu
   if (view === "joined") return rec.joined[i];
   if (view === "modis") return rec.modis[i];
   return rec.snpp[i] ?? rec.n20[i];
+}
+function byYear(d, values) {  // {year: [12 monthly values or null]}
+  const out = {};
+  values.forEach((v, i) => { const { y, m } = ym(d, i); (out[y] ??= Array(12).fill(null))[m] = v; });
+  return out;
 }
 
 // ---------- tooltip ----------
@@ -103,22 +179,27 @@ function monthTip(d, rec, i, view = "joined") {
   if (view !== "joined") return `<b>${fmt(v)} detections</b>${label(d, i)}, ${view === "modis" ? "MODIS" : "VIIRS"} as counted`;
   return `<b>${fmt(v)} detections</b>${label(d, i)}<br><small>${estimated(d, i) ? `estimated from ${fmt(rec.modis[i])} MODIS detections, likely ${fmt(rec.lo[i])} to ${fmt(rec.hi[i])}` : source(d, i)}</small>`;
 }
+function hoverTips(svg, W, find) {   // one pointer handler for a whole chart: find(x, y in chart units) returns [anchor rect, html] or null
+  const move = e => {
+    const r = svg.getBoundingClientRect(), k = W / r.width, hit = find((e.clientX - r.left) * k, (e.clientY - r.top) * k);
+    hit ? tip({ left: e.clientX, right: e.clientX, top: e.clientY - 20, bottom: e.clientY + 20, width: 0 }, hit) : tip();
+  };
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("pointerdown", move);
+  svg.addEventListener("pointerleave", mouseOnly(() => tip()));
+}
 
 // ---------- is this month normal ----------
 function drawAnswer(d, rec) {
-  const i = Math.max(d.src.lastIndexOf("s"), d.src.lastIndexOf("n")), { y, m } = ym(d, i), v = rec.joined[i];
+  const i = newest(d), { y, m } = ym(d, i), v = rec.joined[i];
   const same = [];
   for (let k = i - 12; k >= 0; k -= 12) same.push(rec.joined[k]);
   same.sort((a, b) => a - b);
-  const rank = (same.filter(x => x < v).length + same.filter(x => x === v).length / 2) / same.length;
-  const word = rank <= 0.1 ? "far below normal" : rank <= 0.25 ? "below normal" : rank < 0.75 ? "normal" : rank < 0.9 ? "above normal" : "far above normal";
+  const cls = verdict(v, same), t = T[state.lang], mon = t.months[m];
   const [q1, mid, q3] = [0.25, 0.5, 0.75].map(q => Math.round(quantile(same, q)));
-  const where = state.area ? `your area in ${d.name}` : d.name;
-  $("answer").textContent = `${FULL[m]} ${y} in ${where}: fire activity was ${word}.`;
-  $("answer-detail").textContent = `${fmt(v)} fire detections. In the ${same.length} earlier ${FULL[m]}s on record, the middle year had ${fmt(mid)} and the middle half of years had ${fmt(q1)} to ${fmt(q3)}. ${FULL[m]} ${y} is the newest full month` +
-    (provisional(d, i)
-      ? `. It comes from NASA's near-real-time files, so treat it as provisional until NASA's science-quality data replace it.`
-      : ` in NASA's science-quality files.`);
+  const where = state.area ? (state.lang === "en" ? `your area in ${d.name}` : `${t.area}, ${placeName(d)}`) : placeName(d);
+  $("answer").textContent = t.answer(`${mon} ${y}`, where, t.verdicts[cls]);
+  $("answer-detail").textContent = t.detail(fmt(v), mid ? t.feel(v / mid, mon) : "", same.length, mon, fmt(mid), fmt(q1), fmt(q3)) + t.fresh(mon, y, provisional(d, i));
   const max = Math.max(same[same.length - 1], v, 1), pct = x => (x / max * 100).toFixed(1) + "%";
   const range = $("range");
   range.setAttribute("aria-label", `Range of ${FULL[m]} values: lowest ${fmt(same[0])}, middle ${fmt(mid)}, highest ${fmt(same[same.length - 1])}; this year ${fmt(v)}.`);
@@ -127,21 +208,95 @@ function drawAnswer(d, rec) {
     h("div", { class: "box", style: `left:${pct(q1)};width:${pct(q3 - q1)}` }),
     h("div", { class: "mid", style: `left:${pct(mid)}` }),
     h("div", { class: "now", style: `left:${pct(v)}` }),
-    h("span", { style: "left:0", text: `lowest ${fmt(same[0])}` }),
-    h("span", { style: "right:0", text: `highest ${fmt(same[same.length - 1])}` }));
+    h("span", { style: "left:0", text: `${t.lowest} ${fmt(same[0])}` }),
+    h("span", { style: "right:0", text: `${t.highest} ${fmt(same[same.length - 1])}` }));
 }
+
+// ---------- this season so far: every fire year as a running total ----------
+// A fire year starts in the place's quietest month, so a season that runs across New Year (Chile, Kenya) is never cut in two.
+function quietMonth(d) {
+  const by = MONTHS.map(() => []);
+  d.joined.forEach((v, i) => by[ym(d, i).m].push(v));
+  const med = by.map(median);
+  return med.indexOf(Math.min(...med));
+}
+function drawPace(d, rec) {
+  const box = $("pace"), start = quietMonth(d), n = rec.joined.length, last = ym(d, n - 1);
+  const fyOf = ({ y, m }) => (m >= start ? y : y - 1), pos = m => (m - start + 12) % 12, nowFy = fyOf(last), nowP = pos(last.m);
+  const fyName = fy => (start ? `${fy}–${String(fy + 1).slice(2)}` : String(fy));
+  const runs = {};
+  rec.joined.forEach((v, i) => { const t = ym(d, i); (runs[fyOf(t)] ??= Array(12).fill(null))[pos(t.m)] = v; });
+  for (const a of Object.values(runs)) { let s = 0; a.forEach((v, k) => (a[k] = v === null ? null : (s += v))); }
+  const past = Object.keys(runs).map(Number).filter(fy => fy !== nowFy && runs[fy].every(v => v !== null));
+  const order = MONTHS.map((_, k) => (start + k) % 12);
+  const W = Math.max(300, box.clientWidth), H = 260, pad = { l: 8, r: 52, t: 18, b: 24 }, plotH = H - pad.t - pad.b;
+  const cur = runs[nowFy] ? runs[nowFy].slice(0, nowP + 1) : [];
+  const top = niceUp(Math.max(1, ...past.map(fy => runs[fy][11]), cur[nowP] ?? 0));
+  const x = k => pad.l + (k + 1) / 12 * (W - pad.l - pad.r), y = v => pad.t + plotH - v / top * plotH;
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  for (const t of [0.5, 1]) svg.append(s("line", { x1: pad.l, x2: W - pad.r, y1: y(top * t), y2: y(top * t), stroke: "var(--rule)" }), s("text", { x: pad.l + 2, y: y(top * t) - 3, class: "tick" }, fmt(top * t)));
+  const path = a => "M" + pad.l + "," + y(0) + a.map((v, k) => `L${x(k).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const band = order.map((_, k) => { const vals = past.map(fy => runs[fy][k]).sort((a, b) => a - b); return [quantile(vals, 0.25), quantile(vals, 0.5), quantile(vals, 0.75)]; });
+  svg.append(s("path", { d: "M" + band.map((b, k) => `${x(k).toFixed(1)},${y(b[2]).toFixed(1)}`).join("L") + "L" + band.map((b, k) => `${x(k).toFixed(1)},${y(b[0]).toFixed(1)}`).reverse().join("L") + "Z", fill: "var(--fire-1)" }));
+  const est = fy => (start ? fy + 1 : fy) < 2012;   // fire years that end before VIIRS: estimated from MODIS
+  for (const fy of past) svg.append(s("path", { d: path(runs[fy]), fill: "none", stroke: est(fy) ? "var(--ink-3)" : "var(--ink-2)", "stroke-width": 0.8, opacity: 0.35, "stroke-dasharray": est(fy) ? "3 2" : null }));
+  svg.append(s("path", { d: path(band.map(b => b[1])), fill: "none", stroke: "var(--ink)", "stroke-width": 1.25, "stroke-dasharray": "5 3" }));
+  svg.append(s("text", { x: x(11) + 4, y: y(band[11][1]) + 4, class: "label" }, "middle"));
+  const worst = past.reduce((a, b) => (runs[b][11] > runs[a][11] ? b : a));
+  svg.append(s("text", { x: x(11) + 4, y: y(runs[worst][11]) + 4, class: "tick" }, fyName(worst)));
+  if (cur.length) {
+    svg.append(s("path", { d: path(cur), fill: "none", stroke: "var(--fire-6)", "stroke-width": 2.5, "stroke-linejoin": "round" }));
+    svg.append(s("circle", { cx: x(nowP), cy: y(cur[nowP]), r: 4, fill: "var(--fire-6)", stroke: "var(--paper)", "stroke-width": 2 }));
+    const right = nowP > 8;
+    svg.append(s("text", { x: x(nowP) + (right ? -6 : 6), y: y(cur[nowP]) - 8, class: "label", "text-anchor": right ? "end" : "start" }, fyName(nowFy)));
+  }
+  order.forEach((m, k) => svg.append(s("text", { x: x(k), y: H - 6, "text-anchor": "middle" }, MONTHS[m][0])));
+  svg.append(s("line", { x1: pad.l, x2: W - pad.r, y1: y(0), y2: y(0), stroke: "var(--ink)" }));
+  hoverTips(svg, W, (px, py) => {
+    const k = Math.max(0, Math.min(11, Math.round((px - pad.l) / (W - pad.l - pad.r) * 12 - 1)));
+    const all = [...past.map(fy => [fy, runs[fy][k]]), ...(k <= nowP && cur.length ? [[nowFy, cur[k]]] : [])];
+    const [fy, v] = all.reduce((a, b) => (Math.abs(y(b[1]) - py) < Math.abs(y(a[1]) - py) ? b : a));
+    return `<b>${fyName(fy)}: ${fmt(v)}</b>detections from ${FULL[start]} to the end of ${FULL[order[k]]}${est(fy) ? "<br><small>estimated from MODIS</small>" : ""}`;
+  });
+  box.replaceChildren(svg);
+  const where = state.area ? "your area" : d.name;
+  if (!cur.length) { $("pace-note").textContent = ""; $("outlook").textContent = ""; return; }
+  const sofar = cur[nowP], others = past.map(fy => runs[fy][nowP]).sort((a, b) => a - b), rank = others.filter(v => v > sofar).length + 1, mid = quantile(others, 0.5), total = past.length + 1;
+  const from = `${FULL[start]} ${nowFy}`, to = `${FULL[last.m]} ${last.y}`;
+  svg.setAttribute("aria-label", `Running total of fire detections in each fire year in ${where}, from ${FULL[start]}. ${fyName(nowFy)} so far: ${fmt(sofar)}; a middle year had ${fmt(mid)} by the end of ${FULL[last.m]}.`);
+  $("pace-note").textContent = `Each thin line is one fire year, counted from ${FULL[start]}, the quietest month here, so a season is never cut in two; dashed lines are years estimated from MODIS. From ${from} to ${to}, ${where} had ${fmt(sofar)}: ` +
+    (rank <= total / 2 ? `the ${ordinal(rank)} most of ${total} fire years` : `the ${ordinal(total + 1 - rank)} fewest of ${total} fire years`) + `, ${mid ? Math.round(sofar / mid * 100) : 0}% of a middle year.`;
+  // what usually comes next: the three months after the newest, in every earlier year
+  const next = [1, 2, 3].map(k => (last.m + k) % 12), sums = [];
+  for (let i = 0; i + 3 < n; i++) if (ym(d, i).m === next[0] && i < n - 12) sums.push(rec.joined[i] + rec.joined[i + 1] + rec.joined[i + 2]);
+  sums.sort((a, b) => a - b);
+  $("outlook").innerHTML = sums.length ? `<b>What usually comes next:</b> in the ${sums.length} earlier years, ${FULL[next[0]]} to ${FULL[next[2]]} brought ${fmt(quantile(sums, 0.5))} detections in the middle year (middle half of years: ${fmt(quantile(sums, 0.25))} to ${fmt(quantile(sums, 0.75))}). This is the past, not a forecast.` : "";
+}
+const ordinal = n => n === 1 ? "" : n + (n % 10 === 2 && n % 100 !== 12 ? "nd" : n % 10 === 3 && n % 100 !== 13 ? "rd" : n % 10 === 1 && n % 100 !== 11 ? "st" : "th");
 
 // ---------- the 25-year trace with its sensor tape ----------
 function drawStrip(d, rec) {
   const box = $("strip"), W = Math.max(300, box.clientWidth), H = 250, pad = { l: 8, r: 8, t: 22, b: 0 }, plotH = 128, n = rec.joined.length;
+  const counted = state.strip === "counted", viirs = rec.snpp.map((v, i) => v ?? rec.n20[i]);
   const x = i => pad.l + i / (n - 1) * (W - pad.l - pad.r);
-  const top = niceUp(Math.max(...rec.joined, 1)), y = v => pad.t + plotH - Math.min(v, top) / top * plotH;
-  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Monthly fire detections in ${d.name}, ${label(d, 0)} to ${label(d, n - 1)}. The table under the calendar holds every value.` });
+  const top = niceUp(Math.max(...rec.joined, ...(counted ? viirs.filter(v => v !== null) : []), 1)), y = v => pad.t + plotH - Math.min(v, top) / top * plotH;
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": counted ? `MODIS and VIIRS fire detections per month in ${d.name}, as each sensor counted them.` : `Joined monthly fire detections in ${d.name}, ${label(d, 0)} to ${label(d, n - 1)}. The table under the calendar holds every value.` });
   for (const t of [0.5, 1]) svg.append(s("line", { x1: pad.l, x2: W - pad.r, y1: y(top * t), y2: y(top * t), stroke: "var(--rule)", "stroke-width": 1 }), s("text", { x: pad.l + 2, y: y(top * t) - 3, class: "tick" }, fmt(top * t)));
-  const est = [...d.src].map((c, i) => i).filter(i => estimated(d, i));
-  if (est.length) svg.append(s("path", { d: "M" + est.map(i => `${x(i).toFixed(1)},${y(rec.hi[i]).toFixed(1)}`).join("L") + "L" + est.reverse().map(i => `${x(i).toFixed(1)},${y(rec.lo[i]).toFixed(1)}`).join("L") + "Z", fill: "var(--ink)", opacity: 0.13 }));
-  svg.append(s("polyline", { points: rec.joined.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" "), fill: "none", stroke: "var(--ink)", "stroke-width": 1.25, "stroke-linejoin": "round", pathLength: 1, class: state.drawIn ? "trace draw" : "trace" }));
-  state.drawIn = false;
+  const line = (vals, attrs) => {
+    const parts = []; let cur = [];
+    vals.forEach((v, i) => { if (v === null) { if (cur.length) parts.push(cur); cur = []; } else cur.push(`${x(i).toFixed(1)},${y(v).toFixed(1)}`); });
+    if (cur.length) parts.push(cur);
+    for (const p of parts) svg.append(s("polyline", { points: p.join(" "), fill: "none", "stroke-linejoin": "round", ...attrs }));
+  };
+  if (counted) {
+    line(rec.modis, { stroke: "var(--modis)", "stroke-width": 1.25 });
+    line(viirs, { stroke: "var(--viirs)", "stroke-width": 1.25 });
+  } else {
+    const est = [...d.src].map((c, i) => i).filter(i => estimated(d, i));
+    if (est.length) svg.append(s("path", { d: "M" + est.map(i => `${x(i).toFixed(1)},${y(rec.hi[i]).toFixed(1)}`).join("L") + "L" + est.reverse().map(i => `${x(i).toFixed(1)},${y(rec.lo[i]).toFixed(1)}`).join("L") + "Z", fill: "var(--ink)", opacity: 0.13 }));
+    svg.append(s("polyline", { points: rec.joined.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" "), fill: "none", stroke: "var(--ink)", "stroke-width": 1.25, "stroke-linejoin": "round", pathLength: 1, class: state.drawIn ? "trace draw" : "trace" }));
+    state.drawIn = false;
+  }
   svg.append(s("line", { x1: pad.l, x2: W - pad.r, y1: y(0), y2: y(0), stroke: "var(--ink)", "stroke-width": 1 }));
   const first = +d.first.slice(0, 4);
   for (let yr = Math.ceil((first + 1) / 5) * 5; yr <= ym(d, n - 1).y; yr += 5) {
@@ -168,13 +323,44 @@ function drawStrip(d, rec) {
   const move = e => {
     const r = svg.getBoundingClientRect(), i = Math.max(0, Math.min(n - 1, Math.round(((e.clientX - r.left) / r.width * W - pad.l) / (W - pad.l - pad.r) * (n - 1))));
     cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
-    tip({ left: e.clientX, right: e.clientX, top: r.top + pad.t, bottom: r.top + pad.t + 40, width: 0 }, monthTip(d, rec, i));
+    const html = counted ? `<b>${label(d, i)}</b>MODIS ${rec.modis[i] === null ? "–" : fmt(rec.modis[i])}, VIIRS ${viirs[i] === null ? "–" : fmt(viirs[i])}<br><small>as each sensor counted, not joined</small>` : monthTip(d, rec, i);
+    tip({ left: e.clientX, right: e.clientX, top: r.top + pad.t, bottom: r.top + pad.t + 40, width: 0 }, html);
   };
   hit.addEventListener("pointermove", move);
   hit.addEventListener("pointerdown", move);
   hit.addEventListener("pointerleave", mouseOnly(hideTips));
   svg.append(cross, hit);
   box.replaceChildren(svg);
+  const b = d.test.band.busy;
+  $("strip-note").textContent = counted
+    ? `As each sensor counted, with no joining. MODIS (blue) since 2000, VIIRS (orange) since 2012. The jump between them is the sensor, not the fire: VIIRS sees about ${d.factor.all.toFixed(1)} times more here.`
+    : `Fire detections per month, in VIIRS units. Before 2012 each month is estimated from MODIS; the grey band shows the likely range. In a busy month the real value was usually between ${Math.round((1 - b[0]) * 100)}% below and ${Math.round((b[1] - 1) * 100)}% above the estimate.`;
+}
+
+// ---------- the seam: one fire, both sensors, the same afternoon ----------
+async function drawSeam(d) {
+  const box = $("seam");
+  let seam;
+  try { seam = await getJSON(`data/${d.id}.seam.json`); } catch { box.replaceChildren(); $("seam-note").textContent = ""; return; }
+  if (state.d !== d) return;
+  const all = [...seam.modis, ...seam.viirs], lat0 = median(all.map(p => p[0])), lon0 = median(all.map(p => p[1])), kx = 111.32 * Math.cos(lat0 * Math.PI / 180), ky = 110.57;
+  const rects = list => list.map(([la, lo, sc, tr]) => ({ x: (lo - lon0) * kx - sc / 2, y: -(la - lat0) * ky - tr / 2, w: sc, h: tr }));
+  const M = rects(seam.modis), V = rects(seam.viirs), every = [...M, ...V];
+  const x0 = Math.min(...every.map(r => r.x)) - 1, x1 = Math.max(...every.map(r => r.x + r.w)) + 1, y0 = Math.min(...every.map(r => r.y)) - 1, y1 = Math.max(...every.map(r => r.y + r.h)) + 1;
+  const span = Math.max(x1 - x0, y1 - y0), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, P = 220;
+  const panel = (list, color, title, size, count) => {
+    const svg = s("svg", { viewBox: `0 0 ${P} ${P}`, "aria-hidden": "true" });
+    const sc = P / span, tx = v => (v - cx) * sc + P / 2, ty = v => (v - cy) * sc + P / 2;
+    svg.append(s("rect", { x: 0, y: 0, width: P, height: P, fill: "#1b2330", rx: 4 }));
+    for (const r of list) svg.append(s("rect", { x: tx(r.x), y: ty(r.y), width: r.w * sc, height: r.h * sc, fill: color, "fill-opacity": 0.55, stroke: color, "stroke-width": 0.8 }));
+    const bar = nice(span / 4);
+    svg.append(s("line", { x1: 10, x2: 10 + bar * sc, y1: P - 10, y2: P - 10, stroke: "#fff", "stroke-width": 2 }), s("text", { x: 10, y: P - 15, fill: "#fff", class: "on-dark" }, `${bar} km`));
+    return h("figure", {}, svg, h("figcaption", {}, h("b", { text: title }), `${count} fire pixels, ${size} each`));
+  };
+  const date = new Date(seam.date + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  const gap = Math.abs((+seam.modis_time.slice(0, 2) * 60 + +seam.modis_time.slice(2)) - (+seam.viirs_time.slice(0, 2) * 60 + +seam.viirs_time.slice(2)));
+  box.replaceChildren(panel(M, "#5aa2ff", "MODIS on Aqua", "about 1 km", M.length), panel(V, "#ff8a4c", "VIIRS on Suomi NPP", "about 375 m", V.length));
+  $("seam-note").textContent = `The same fire in ${d.name} on ${date}, seen by both satellites ${gap ? `${gap} minutes apart` : "in the same minute"}. Each square is one pixel that NASA marked as fire, drawn at its real size. VIIRS counted ${(V.length / M.length).toFixed(1)} times more for the same burning. Put the two records side by side without joining them, and every year before 2012 looks far calmer than it was.`;
 }
 
 // ---------- burning calendar, its legend and its table ----------
@@ -182,24 +368,24 @@ function drawCalendar(d, rec) {
   const view = state.view, n = rec.joined.length, values = rec.joined.map((_, i) => shown(d, rec, view, i));
   const br = breaks(values.filter(v => v !== null)), colors = view === "modis" ? BLUE : FIRE;
   const cal = $("calendar"), cells = [h("span"), ...MONTHS.map(m => h("span", { class: "head", text: m[0], title: m }))];
-  const rows = [h("tr", {}, h("th", { text: "Year" }), ...MONTHS.map(m => h("th", { text: m })))];
+  const table = $("table").closest("details").open, rows = [h("tr", {}, h("th", { text: "Year" }), ...MONTHS.map(m => h("th", { text: m })))];   // the table is built only when its fold is open
   const first = ym(d, 0), last = ym(d, n - 1);
   for (let yr = first.y; yr <= last.y; yr++) {
     cells.push(h("span", { class: "year", text: yr }));
-    const tr = h("tr", {}, h("th", { text: yr }));
+    const tr = table && h("tr", {}, h("th", { text: yr }));
     for (let m = 0; m < 12; m++) {
       const i = (yr - first.y) * 12 + m - first.m, v = i >= 0 && i < n ? values[i] : null, est = v !== null && view === "joined" && estimated(d, i);
       const b = h("button", { type: "button", tabindex: -1, class: v === null ? "none" : est ? "est" : "", "aria-label": v === null ? `${MONTHS[m]} ${yr}: no data` : `${MONTHS[m]} ${yr}: ${fmt(v)} detections${est ? ", estimated from MODIS" : ""}` });
       if (v) b.style.background = ramp(classOf(v, br), br, colors);
       if (i >= 0 && i < n) b.dataset.i = i;
       cells.push(b);
-      tr.append(h("td", { class: est ? "est" : "", text: v === null ? "–" : fmt(v) }));
+      if (table) tr.append(h("td", { class: est ? "est" : "", text: v === null ? "–" : fmt(v) }));
     }
-    rows.push(tr);
+    if (table) rows.push(tr);
   }
   cal.replaceChildren(...cells);
   cal.querySelector("button[data-i]").tabIndex = 0;
-  $("table").replaceChildren(...rows);
+  if (table) $("table").replaceChildren(...rows);
   $("calendar-note").textContent = view === "joined"
     ? "Each square is one month. A cut corner means the value is an estimate scaled from MODIS."
     : view === "modis" ? "MODIS as counted, not scaled. Compare its colours with the joined view: the same fires, about " + d.factor.all.toFixed(0) + " times fewer detections."
@@ -228,7 +414,7 @@ function calendarEvents() {
 // ---------- months and years ----------
 function bars(box, items, { labelEvery = 1, legend }) {   // items: {name, v, lo, hi, color, tip}
   const W = Math.max(280, box.clientWidth), H = 200, pad = { l: 8, r: 8, t: 26, b: 22 }, plotH = H - pad.t - pad.b;
-  const top = niceUp(Math.max(1, ...items.map(it => it.v))), step = (W - pad.l - pad.r) / items.length, bw = Math.max(2, Math.min(22, step - 2));
+  const top = niceUp(Math.max(1, ...items.map(it => Math.max(it.v, it.hi ?? 0)))), step = (W - pad.l - pad.r) / items.length, bw = Math.max(2, Math.min(22, step - 2));
   const y = v => pad.t + plotH - Math.min(v, top) / top * plotH;
   const svg = s("svg", { viewBox: `0 0 ${W} ${H}` });
   const best = items.reduce((a, b) => (b.v > a.v ? b : a)), ticksRight = items.indexOf(best) < items.length / 2;
@@ -239,7 +425,7 @@ function bars(box, items, { labelEvery = 1, legend }) {   // items: {name, v, lo
     g.append(s("path", { d: `M${cx - bw / 2},${y(0)}V${y(it.v) + 2}q0,-2 2,-2h${bw - 4}q2,0 2,2V${y(0)}Z`, fill: it.color }));
     if (it.lo !== undefined) g.append(s("line", { x1: cx, x2: cx, y1: y(it.lo), y2: y(it.hi), stroke: "var(--ink)", "stroke-width": 1.5 }));
     if (k % labelEvery === 0) svg.append(s("text", { x: cx, y: H - 6, "text-anchor": "middle" }, it.name));
-    if (it === best) svg.append(s("text", { x: Math.min(W - 30, Math.max(30, cx)), y: y(Math.max(it.v, it.hi ?? 0)) - 5, "text-anchor": "middle", class: "label tick" }, fmt(it.v)));
+    if (it === best) svg.append(s("text", { x: cx, y: y(Math.max(it.v, it.hi ?? 0)) - 5, "text-anchor": cx < W * 0.2 ? "start" : cx > W * 0.8 ? "end" : "middle", class: "label tick" }, `${it.long ?? it.name}: ${fmt(it.v)}`));
     g.addEventListener("pointerenter", () => tip(g, it.tip));
     g.addEventListener("focus", () => tip(g, it.tip));
     g.addEventListener("pointerleave", mouseOnly(() => tip()));
@@ -255,153 +441,217 @@ function drawMonths(d, rec) {
   bars($("months"), by.map((vals, m) => {
     vals.sort((a, b) => a - b);
     const [lo, v, hi] = [0.25, 0.5, 0.75].map(q => Math.round(quantile(vals, q)));
-    return { name: MONTHS[m][0], v, lo, hi, color: "var(--fire-5)", tip: `<b>${fmt(v)} detections</b>${FULL[m]}, middle year<br><small>middle half of years: ${fmt(lo)} to ${fmt(hi)}</small>` };
+    return { name: MONTHS[m][0], long: MONTHS[m], v, lo, hi, color: "var(--fire-5)", tip: `<b>${fmt(v)} detections</b>${FULL[m]}, middle year<br><small>middle half of years: ${fmt(lo)} to ${fmt(hi)}</small>` };
   }), {});
 }
 function drawYears(d, rec) {
-  const years = {}, err = d.test.monthly.year_err_mean / 100;
+  const years = {}, err = d.test.monthly.year_err_max / 100;
   rec.joined.forEach((v, i) => { const y = ym(d, i).y, o = (years[y] ??= { v: 0, n: 0, est: 0 }); o.v += v; o.n++; o.est += estimated(d, i); });
-  const items = Object.entries(years).filter(([, o]) => o.n === 12).map(([y, o]) => {
+  const full = Object.entries(years).filter(([, o]) => o.n === 12);
+  const items = full.map(([y, o]) => {
     const est = o.est > 6;   // 2012 has one MODIS month (January) and eleven VIIRS months
     return {
       name: y, v: o.v, color: est ? "var(--fire-3)" : "var(--fire-5)", ...(est ? { lo: o.v * (1 - err), hi: o.v * (1 + err) } : {}),
-      tip: `<b>${fmt(o.v)} detections</b>${y}<br><small>${est ? `estimated from MODIS, typical miss ${d.test.monthly.year_err_mean}%` : o.est ? `measured by VIIRS, except ${o.est} month estimated from MODIS` : "measured by VIIRS"}</small>`,
+      tip: `<b>${fmt(o.v)} detections</b>${y}<br><small>${est ? `estimated from MODIS; in the test a hidden year was off by up to ${d.test.monthly.year_err_max}%` : o.est ? `measured by VIIRS, except ${o.est} month estimated from MODIS` : "measured by VIIRS"}</small>`,
     };
   });
   const key = (color, text) => h("span", { class: "key" }, h("i", { style: `background:${color}` }), text);
   bars($("years"), items, { labelEvery: 5, legend: h("div", { class: "legend", style: "margin:0;padding:0.4rem 0.5rem" }, key("var(--fire-3)", "estimated from MODIS"), key("var(--fire-5)", "measured by VIIRS")) });
+  // the check a scientist asks for: is the worst year only an artefact of the scaling? Terra flew 2001 to 2021 alone and unchanged.
+  const worst = items.reduce((a, b) => (b.v > a.v ? b : a)), note = $("years-check");
+  if (worst.color !== "var(--fire-3)") { note.textContent = `The worst year, ${worst.name}, was measured by VIIRS, not estimated.`; return; }
+  if (state.area) { note.textContent = `The worst year, ${worst.name}, is an estimate from MODIS. Read it with its range.`; return; }
+  const terra = byYear(d, d.terra);
+  const totals = Object.entries(terra).filter(([y, a]) => y >= 2001 && y <= 2021 && a.every(v => v !== null)).map(([y, a]) => [+y, a.reduce((p, q) => p + q, 0)]).sort((a, b) => b[1] - a[1]);
+  const rank = totals.findIndex(([y]) => y === +worst.name) + 1;
+  note.textContent = `Check: the worst year, ${worst.name}, is an estimate from MODIS. Terra, the one satellite that flew all of 2001 to 2021, counted with no scaling at all, ranks ${worst.name} ` +
+    (rank === 1 ? "first too" : rank <= 3 ? `${ordinal(rank)} of ${totals.length}, so it was a bad year whatever the method` : `only ${ordinal(rank)} of ${totals.length}, so treat this peak with care`) + ".";
 }
 
-// ---------- map and area ----------
-function drawMap(d) {
-  if (!window.L) return;
-  if (!state.map) makeMap();
-  state.fires = null;
-  state.dots?.remove();
-  const f = d.factor, c = d.coarse_deg, totals = d.grid.map(([, , modis, snpp, n20]) => {
-    let t = 0;
-    for (const i in modis) if (estimated(d, i)) t += modis[i] * f.by_month[ym(d, +i).m];
-    for (const i in snpp) if (d.src[i] === "s") t += snpp[i];
-    for (const i in n20) if (d.src[i] === "n") t += n20[i] * f.handover;
-    return t;
+// ---------- the map: a globe drawn on the graphics chip ----------
+let mapLib;
+function loadMapLib() {     // MapLibre is 1 MB, so it loads only when the map is near the screen
+  return mapLib ??= new Promise((resolve, reject) => {
+    document.head.append(h("link", { rel: "stylesheet", href: MAPLIBRE + "maplibre-gl.min.css", integrity: "sha512-KIMsMWIdnoG9OwZa+oaIafmbDonqck1UCmq+/zcUi2aaZ97N9QE6TqpTM+n36EO40HGh64hU/375zxtjx7WTyQ==", crossorigin: "anonymous", referrerpolicy: "no-referrer" }));
+    const sc = h("script", { src: MAPLIBRE + "maplibre-gl.min.js", integrity: "sha512-Ktl9Zvfa9ZNMY92eXRPU5/bEglvxKBLdiVPIyBJ5ubyCkggk64Kdl7AhiDc00p70+OxDzbj5TryToLw82/yb+A==", crossorigin: "anonymous", referrerpolicy: "no-referrer" });
+    sc.onload = () => resolve(window.maplibregl);
+    sc.onerror = reject;
+    document.head.append(sc);
   });
-  const all = totals.reduce((a, b) => a + b, 0);
-  const edge = (axis, q) => {   // the edge below which a share q of the fire lies, so a far island with little fire does not zoom the map out
-    let sum = 0;
-    for (const k of [...totals.keys()].sort((a, b) => d.grid[a][axis] - d.grid[b][axis])) if ((sum += totals[k]) >= all * q) return d.grid[k][axis] * c;
-  };
-  state.map.invalidateSize();
-  const bounds = L.latLngBounds([[edge(1, 0.01), edge(0, 0.01)], [edge(1, 0.99) + c, edge(0, 0.99) + c]]);
-  if (state.mapShown && !matchMedia("(prefers-reduced-motion: reduce)").matches) state.map.flyToBounds(bounds, { padding: [12, 12], duration: 0.9 });
-  else state.map.fitBounds(bounds, { padding: [12, 12], animate: false });
-  state.mapShown = true;
-  $("map-note").textContent = "Loading this year's fires…";
-  $("map-key").replaceChildren();
-  getJSON(`data/${d.id}.fires.json`).then(fires => {
-    if (state.d !== d) return;   // the place changed while the file loaded
-    state.fires = fires;
-    // ages count back from the last day of the newest month in the data, not from today
-    const [y, m] = fires.to.split("-").map(Number);
-    fires.last = Math.round((Date.UTC(y, m, 0) - Date.UTC(y, 0, 0)) / 864e5);
-    drawFires();
-  }).catch(() => { $("map-note").textContent = "This year's fires could not load. The charts above are not affected."; });
 }
-
-// the satellite picture, place names, the fires, and a full-screen button
-function makeMap() {
-  const map = state.map = L.map("map", { scrollWheelZoom: false, minZoom: 2, maxZoom: 16, zoomSnap: 0.5 });
-  const sharp = L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg",
-    { maxNativeZoom: 15, maxZoom: 16, crossOrigin: true, attribution: '<a href="https://s2maps.eu">Sentinel-2 cloudless</a> by EOX' }).addTo(map);
-  const nasa = L.tileLayer("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg",
-    { maxNativeZoom: 8, maxZoom: 16, crossOrigin: true, attribution: "NASA GIBS Blue Marble" });
-  map.createPane("names").style.zIndex = 450;   // place names above the fires
-  map.getPane("names").style.pointerEvents = "none";
-  const names = L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/overlay_bright_3857/default/g/{z}/{y}/{x}.png",
-    { pane: "names", maxNativeZoom: 15, maxZoom: 16, crossOrigin: true, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
-  L.control.layers({ "Satellite, sharp": sharp, "NASA Blue Marble": nasa }, { "Place names": names }, { position: "topright" }).addTo(map);
-  const Full = L.Control.extend({
-    onAdd() {
-      const b = L.DomUtil.create("button", "map-full-button");
-      b.type = "button"; b.textContent = "Full screen"; b.setAttribute("aria-pressed", "false");
-      L.DomEvent.disableClickPropagation(b);
-      b.addEventListener("click", () => toggleFull(b));
-      return b;
+const AGES = [[7, "#fff6b4", "last 7 days of data"], [30, "#ffc43c", "8 to 30 days before"], [91, "#ff781e", "1 to 3 months before"], [Infinity, "#dc2d19", "earlier in the year"]];
+const empty = { type: "FeatureCollection", features: [] };
+async function makeMap() {
+  const gl = await loadMapLib();
+  const map = new gl.Map({
+    container: "map",
+    style: {
+      version: 8,
+      projection: { type: "globe" },
+      sky: { "atmosphere-blend": ["interpolate", ["linear"], ["zoom"], 0, 1, 5, 1, 7, 0] },
+      sources: {
+        sat: { type: "raster", tiles: [EOX + "s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg"], tileSize: 256, maxzoom: 15, attribution: '<a href="https://s2maps.eu">Sentinel-2 cloudless 2020</a> by EOX' },
+        names: { type: "raster", tiles: [EOX + "overlay_bright_3857/default/g/{z}/{y}/{x}.png"], tileSize: 256, maxzoom: 15, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
+        countries: { type: "geojson", data: "data/countries.json", attribution: "Natural Earth" },
+        fires: { type: "geojson", data: empty, attribution: '<a href="https://firms.modaps.eosdis.nasa.gov/">NASA FIRMS</a>' },
+        cells: { type: "geojson", data: empty },
+        area: { type: "geojson", data: empty },
+        outline: { type: "geojson", data: empty },
+      },
+      layers: [
+        { id: "sat", type: "raster", source: "sat" },
+        { id: "cells", type: "fill", source: "cells", paint: { "fill-color": ["get", "c"], "fill-opacity": ["get", "o"] } },
+        { id: "heat", type: "heatmap", source: "fires", maxzoom: 6.5, paint: {   // the globe and continents: a glow, never a blob
+          "heatmap-weight": 1,
+          "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 0, 0.15, 6, 0.5],
+          "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 0, 1.5, 4, 3, 6, 5],
+          "heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(220,45,25,0)", 0.15, "rgba(220,45,25,0.55)", 0.4, "#ff781e", 0.7, "#ffc43c", 1, "#fff6b4"],
+          "heatmap-opacity": ["interpolate", ["linear"], ["zoom"], 4, 0.95, 6, 0] } },
+        { id: "dots", type: "circle", source: "fires", minzoom: 4, paint: {   // a country and closer: every fire spot
+          "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 4, 0.8, 7, 1.2, 10, 1.8, 16, 80],   // about one VIIRS pixel (375 m) once zoomed in
+          "circle-color": ["step", ["get", "age"], AGES[0][1], 7, AGES[1][1], 30, AGES[2][1], 91, AGES[3][1]],
+          "circle-opacity": ["interpolate", ["linear"], ["zoom"], 4, 0, 5.5, 0.9] } },
+        { id: "borders", type: "line", source: "countries", paint: {
+          "line-color": ["case", ["==", ["get", "has"], 1], "#ffd27a", "rgba(255,255,255,0.35)"],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 1, ["case", ["==", ["get", "has"], 1], 1.2, 0.4], 6, ["case", ["==", ["get", "has"], 1], 2, 0.8]],
+          "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 1, 9, 0.3] } },
+        { id: "countries", type: "fill", source: "countries", filter: ["==", ["get", "has"], 1], paint: { "fill-color": "#ffd27a", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 1, 0.4, 3, 0.25, 4.5, 0.04, 6, 0] } },
+        { id: "selected", type: "line", source: "outline", paint: { "line-color": "#ffd27a", "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.5, 6, 2.5, 12, 3.5], "line-opacity": ["interpolate", ["linear"], ["zoom"], 6, 1, 10, 0.5] } },
+        { id: "area", type: "line", source: "area", paint: { "line-color": "#fbfcf8", "line-width": 2, "line-dasharray": [3, 2] } },
+        { id: "names", type: "raster", source: "names" },
+      ],
     },
+    center: [80.7, 7.8], zoom: 1.4, maxZoom: 16, attributionControl: { compact: true },
+    canvasContextAttributes: { preserveDrawingBuffer: true }, preserveDrawingBuffer: true,   // so the map can be saved as a picture
   });
-  new Full({ position: "topleft" }).addTo(map);
-  map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
+  state.map = map;
+  map.addControl(new gl.NavigationControl({ visualizePitch: false }), "top-right");
+  if (gl.GlobeControl) map.addControl(new gl.GlobeControl(), "top-right");
+  map.addControl({
+    onAdd() {
+      const b = this.b = h("button", { type: "button", class: "map-full-button", "aria-pressed": "false", text: "Full screen" });
+      b.addEventListener("click", () => toggleFull(b));
+      return h("div", { class: "maplibregl-ctrl" }, b);
+    },
+    onRemove() {},
+  }, "top-left");
   addEventListener("keydown", e => { if (e.key === "Escape" && document.body.classList.contains("map-open")) toggleFull(document.querySelector(".map-full-button")); });
-  map.on("click", e => {   // the nearest fire within a finger's width
-    const fires = state.fires;
-    if (!fires) return;
-    const at = map.latLngToContainerPoint(e.latlng), since = fires.last - +state.when, sc = fires.scale;
-    let best = -1, bestD = 22 * 22;
-    for (let k = 0; k < fires.pts.length; k += 4) {
-      if (fires.pts[k + 2] <= since) continue;
-      const p = map.latLngToContainerPoint([fires.pts[k] / sc, fires.pts[k + 1] / sc]), dd = (p.x - at.x) ** 2 + (p.y - at.y) ** 2;
-      if (dd < bestD) { bestD = dd; best = k; }
-    }
-    if (best < 0) return;
-    const [lat, lon, day, n] = fires.pts.slice(best, best + 4).map((v, i) => i < 2 ? v / sc : v);
-    L.popup().setLatLng([lat, lon]).setContent(`<b>Fire seen ${dayLabel(fires.year, day)}</b><br>${n === 1 ? "1 detection" : `${n} detections`} here this year, by NOAA-20 VIIRS<br>${lat.toFixed(3)}°, ${lon.toFixed(3)}°`).openOn(map);
-  });
+  map.on("click", e => onMapClick(gl, e));
+  map.on("mousemove", e => { map.getCanvas().style.cursor = hitAt(e.point) ? "pointer" : ""; });
+  map.on("moveend", () => { if (state.mapReady) writeHash(); });
+  const hint = h("p", { class: "map-hint", text: "Tap a gold country to open its fire record" });
+  map.getContainer().append(hint);
+  const showHint = () => hint.classList.toggle("on", map.getZoom() < 3.2);   // only on the globe view, where countries are small
+  map.on("zoom", showHint);
+  map.once("idle", showHint);
+  await new Promise(r => map.once("load", r));
+  $("map-wait")?.remove();
+  map.getContainer().querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");   // credits fold to an (i) until tapped
+  state.mapReady = true;
+}
+function hitAt(point, layers = ["dots", "cells", "countries"]) {
+  const map = state.map, live = layers.filter(l => map.getLayer(l) && map.getLayoutProperty(l, "visibility") !== "none");
+  const f = map.queryRenderedFeatures([[point.x - 10, point.y - 10], [point.x + 10, point.y + 10]], { layers: live });
+  return f.find(x => x.layer.id === "dots") || f.find(x => x.layer.id === "cells") || f.find(x => x.layer.id === "countries");
+}
+function onMapClick(gl, e) {
+  const f = hitAt(e.point);
+  if (!f) return;
+  const p = f.properties;
+  if (f.layer.id === "countries") {
+    if (p.id !== state.d.id) { $("place").value = p.id; load(p.id, { fly: true }); }
+    else state.map.fitBounds(countryBounds(state.d), { padding: 24, duration: calm() ? 0 : 1200 });
+    return;
+  }
+  const html = f.layer.id === "dots"
+    ? `<b>Fire seen ${dayLabel(state.fires.year, p.day)}</b><br>${p.n === 1 ? "1 detection" : `${p.n} detections`} at this spot this year, by NOAA-20 VIIRS<br>${f.geometry.coordinates[1].toFixed(3)}°, ${f.geometry.coordinates[0].toFixed(3)}°`
+    : p.html;
+  new gl.Popup({ maxWidth: "260px" }).setLngLat(e.lngLat).setHTML(html).addTo(state.map);
 }
 function toggleFull(button) {
   const open = document.body.classList.toggle("map-open");
   $("map").classList.toggle("full", open);
   button.textContent = open ? "Close full screen" : "Full screen";
   button.setAttribute("aria-pressed", String(open));
-  state.map.invalidateSize();
+  state.map.resize();
 }
 const dayLabel = (year, day) => new Date(Date.UTC(year, 0, day)).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
-// fires older than this many days fade from yellow to red; the newest are brightest, as on NASA's fire maps
-const AGES = [[7, "rgba(255, 246, 180, 0.95)", "last 7 days of data"], [30, "rgba(255, 196, 60, 0.85)", "8 to 30 days before"], [91, "rgba(255, 120, 30, 0.7)", "1 to 3 months before"], [Infinity, "rgba(220, 45, 25, 0.55)", "earlier in the year"]];
-function drawFires() {
-  const d = state.d, fires = state.fires;
-  if (!fires) return;
-  state.dots?.remove();
-  state.dots = new FireDots({ fires, since: fires.last - +state.when, attribution: '<a href="https://firms.modaps.eosdis.nasa.gov/">NASA FIRMS</a>' }).addTo(state.map);
-  let shown = 0;
-  for (let k = 2; k < fires.pts.length; k += 4) if (fires.pts[k] > fires.last - +state.when) shown++;
-  const until = dayLabel(fires.year, fires.last);
-  $("map-note").textContent = `${fmt(shown)} places where NASA's NOAA-20 satellite saw fire in ${d.name}${state.when === "366" ? ` in ${fires.year}` : `, ${state.when === "30" ? "30 days" : "3 months"} up to ${until}`}. Each dot is one satellite pixel, about 370 m. Tap a dot for its date. Data run to ${until}; the last three months are provisional. Zoom in to your district and press "Use this view as my area" to redraw every chart for it.`;
-  $("map-key").replaceChildren(...AGES.filter(([days], i) => i === 0 || AGES[i - 1][0] < +state.when).map(([, color, text]) => h("span", { class: "key" }, h("i", { class: "dot", style: `background:${color.replace(/[\d.]+\)$/, "1)")}` }), text)));
+const countryBounds = d => d.bounds;   // 98% of the country's fire (pipeline: fire_bounds)
+async function withMap(d) {   // the map squares and layers: a separate file, so the first screen loads without them
+  if (!d.grid) Object.assign(d, await getJSON(`data/${d.id}.map.json`));
+  return d;
 }
-
-// the fires as dots on canvas tiles: one canvas per map tile, so 100,000 dots stay smooth on a phone
-const FireDots = window.L && L.GridLayer.extend({
-  initialize(options) {
-    L.GridLayer.prototype.initialize.call(this, { ...options, maxZoom: 16 });
-    const { pts, scale: sc } = options.fires, n = pts.length / 4;
-    // positions in map pixels at zoom 0, oldest first so the newest fires are drawn on top
-    const order = [...Array(n).keys()].filter(i => pts[i * 4 + 2] > options.since).sort((a, b) => pts[a * 4 + 2] - pts[b * 4 + 2]);
-    this.xy = new Float64Array(order.length * 2); this.age = new Uint16Array(order.length);
-    order.forEach((i, j) => {
-      const p = L.CRS.EPSG3857.latLngToPoint(L.latLng(pts[i * 4] / sc, pts[i * 4 + 1] / sc), 0);
-      this.xy[j * 2] = p.x; this.xy[j * 2 + 1] = p.y; this.age[j] = options.fires.last - pts[i * 4 + 2];
+async function drawMap(d, { fly = false, view = null } = {}) {
+  if (!state.mapReady) return;
+  const map = state.map;
+  map.setFilter("borders", ["!=", ["get", "id"], d.id]);   // the open country gets its detailed outline instead
+  map.getSource("outline").setData(empty);
+  getJSON(`data/${d.id}.outline.json`).then(o => { if (state.d === d) map.getSource("outline").setData(o); }).catch(() => map.setFilter("borders", null));
+  if (view) map.jumpTo(view);
+  else map.fitBounds(countryBounds(d), { padding: 24, duration: fly && !calm() ? 2200 : 0, essential: false });
+  $("map-note").textContent = "Loading this year's fires…";
+  try {
+    await withMap(d);
+    if (state.d !== d) return;
+    drawCells();
+    const fires = state.fires && state.fires.id === d.id ? state.fires : await getJSON(`data/${d.id}.fires.json`);
+    if (state.d !== d) return;   // the place changed while the file loaded
+    fires.id = d.id;
+    const [y, m] = fires.to.split("-").map(Number);
+    fires.last = Math.round((Date.UTC(y, m, 0) - Date.UTC(y, 0, 0)) / 864e5);   // ages count back from the last day of the data, not from today
+    state.fires = fires;
+    const features = [];
+    for (let k = 0; k < fires.pts.length; k += 4) features.push({ type: "Feature", properties: { day: fires.pts[k + 2], n: fires.pts[k + 3], age: fires.last - fires.pts[k + 2] }, geometry: { type: "Point", coordinates: [fires.pts[k + 1] / fires.scale, fires.pts[k] / fires.scale] } });
+    features.sort((a, b) => b.properties.age - a.properties.age);   // oldest first, so the newest are drawn on top
+    map.getSource("fires").setData({ type: "FeatureCollection", features });
+    drawFires();
+  } catch { $("map-note").textContent = "This year's fires could not load. The charts above are not affected."; }
+}
+function fireFilter() { return ["<", ["get", "age"], +state.when]; }
+function drawFires() {
+  const d = state.d, fires = state.fires, map = state.map;
+  if (!fires || !state.mapReady) return;
+  map.setFilter("heat", fireFilter()); map.setFilter("dots", fireFilter());
+  if (state.layer !== "fires") return;
+  let shown = 0;
+  for (let k = 2; k < fires.pts.length; k += 4) if (fires.last - fires.pts[k] < +state.when) shown++;
+  state.shown = shown;
+  const until = dayLabel(fires.year, fires.last);
+  $("map-note").textContent = `${fmt(shown)} spots where NASA's NOAA-20 satellite saw fire in ${d.name}${state.when === "366" ? ` in ${fires.year}` : `, ${state.when === "30" ? "30 days" : "3 months"} up to ${until}`}. Zoomed out, they glow as a heat map; zoom in and each dot is one satellite pixel, about ${Math.round(111320 / fires.scale)} m. Tap a dot for its date. The last three months are provisional.`;
+  $("map-key").replaceChildren(...AGES.filter(([days], i) => i === 0 || AGES[i - 1][0] < +state.when).map(([, color, text]) => h("span", { class: "key" }, h("i", { class: "dot", style: `background:${color}` }), text)));
+}
+function square(x0, y0, size) { return { type: "Polygon", coordinates: [[[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size], [x0, y0]]] }; }
+function drawCells() {        // "when it burns" and "unusual now": the country's own map squares, coloured
+  const d = state.d, map = state.map, layer = state.layer;
+  if (!state.mapReady || !d.grid) return;   // drawMap calls again once the map file is in
+  for (const l of ["heat", "dots"]) map.setLayoutProperty(l, "visibility", layer === "fires" ? "visible" : "none");
+  map.setLayoutProperty("cells", "visibility", layer === "fires" ? "none" : "visible");
+  $("when").hidden = layer !== "fires";
+  if (layer === "fires") { map.getSource("cells").setData(empty); drawFires(); return; }
+  const features = [];
+  if (layer === "burn") {   // each 0.2-degree square, coloured by the calendar month it burns most (pipeline: map_layers)
+    const c = d.burn_deg, totals = d.burn.map(([, , ...by]) => by.reduce((a, b) => a + b, 0)), top = Math.log1p(quantile([...totals].sort((a, b) => a - b), 0.99));
+    d.burn.forEach(([x, y, ...by], k) => {
+      const t = totals[k], peak = by.indexOf(Math.max(...by)), share = Math.round(by[peak] / t * 100);
+      features.push({ type: "Feature", geometry: square(x * c, y * c, c), properties: { c: MONTH_COLORS[peak], o: Math.min(0.9, 0.15 + 0.75 * Math.log1p(t) / top), html: `<b>Burns most in ${FULL[peak]}</b>${share}% of this square's fire since 2000 came in ${FULL[peak]}.<br>About ${fmt(t / 26)} detections a year.` } });
     });
-  },
-  createTile(coords) {
-    const size = this.getTileSize(), t = document.createElement("canvas"), dpr = Math.min(2, window.devicePixelRatio || 1);
-    t.width = size.x * dpr; t.height = size.y * dpr;
-    const g = t.getContext("2d"), scale = 2 ** coords.z, x0 = coords.x * size.x, y0 = coords.y * size.y, { xy, age } = this;
-    // a fire is drawn about the size of a VIIRS pixel (375 m), never smaller than a visible speck;
-    // overlapping fires add light, so a lone fire is a speck and a burning region glows
-    const r = Math.max(1.1, 0.0034 * 256 * scale / 360 * 0.5);
-    g.scale(dpr, dpr);
-    g.globalCompositeOperation = "lighter";
-    for (let j = 0; j < age.length; j++) {
-      const x = xy[j * 2] * scale - x0, y = xy[j * 2 + 1] * scale - y0;
-      if (x < -r || y < -r || x > size.x + r || y > size.y + r) continue;
-      const color = AGES.find(([days]) => age[j] < days)[1];
-      if (color !== g.fillStyle) g.fillStyle = color;   // dots come oldest first, so the colour changes only a few times
-      if (r < 1.6) g.fillRect(x - r, y - r, 2 * r, 2 * r);
-      else { g.beginPath(); g.arc(x, y, r, 0, 6.2832); g.fill(); }
+    $("map-note").textContent = `Each square of about ${Math.round(c * 111)} km is coloured by the month it burns most, from 26 years of the joined record; stronger colour means more fire. Tap a square for its numbers.`;
+    $("map-key").replaceChildren(h("span", { class: "wheel" }, ...MONTHS.map((mo, m) => h("span", { class: "key" }, h("i", { style: `background:${MONTH_COLORS[m]}` }), mo))));
+  } else {                  // each 0.5-degree square: the newest month against the same month in earlier years
+    const c = d.same_deg, { y, m } = ym(d, d.same_month);
+    for (const [x, yy, ...vals] of d.same) {
+      const now = vals[vals.length - 1], past = vals.slice(0, -1), mid = median(past);
+      if (Math.max(now, mid) < 3) continue;   // too few fires either way to call anything unusual
+      const cls = verdict(now, past);
+      features.push({ type: "Feature", geometry: square(x * c, yy * c, c), properties: { c: UNUSUAL[cls][1], o: cls === 2 ? 0.35 : 0.8, html: `<b>${FULL[m]} ${y}: ${UNUSUAL[cls][0]}</b>${fmt(now)} detections here; the middle ${FULL[m]} of the ${past.length} years before had ${fmt(mid)}.` } });
     }
-    return t;
-  },
-});
+    $("map-note").textContent = `Each square of about ${Math.round(c * 111)} km compares ${FULL[m]} ${y} with the same month in the years before${provisional(d, d.same_month) ? " (near-real-time data, provisional)" : ""}. Squares with almost no fire either way are left out.`;
+    $("map-key").replaceChildren(...UNUSUAL.map(([text, color]) => h("span", { class: "key" }, h("i", { style: `background:${color}` }), text)));
+  }
+  state.cells = features.length;
+  map.getSource("cells").setData({ type: "FeatureCollection", features });
+}
 
 function downloadFires() {
   const d = state.d, fires = state.fires;
@@ -409,30 +659,19 @@ function downloadFires() {
   const lines = ["latitude,longitude,last_seen,detections_this_year"];
   for (let k = 0; k < fires.pts.length; k += 4) {
     const day = fires.pts[k + 2];
-    if (day <= fires.last - +state.when) continue;
+    if (fires.last - day >= +state.when) continue;
     lines.push([(fires.pts[k] / fires.scale).toFixed(4), (fires.pts[k + 1] / fires.scale).toFixed(4), new Date(Date.UTC(fires.year, 0, day)).toISOString().slice(0, 10), fires.pts[k + 3]].join(","));
   }
   save(new Blob([lines.join("\n") + "\n"], { type: "text/csv" }), `${d.id}-fires-${fires.year}.csv`);
 }
-// the map as one picture: every visible tile and fire canvas drawn where it sits on screen
-async function saveMap() {
-  const box = $("map").getBoundingClientRect(), dpr = Math.min(2, window.devicePixelRatio || 1);
-  const out = document.createElement("canvas");
-  out.width = box.width * dpr; out.height = box.height * dpr;
-  const g = out.getContext("2d");
-  g.scale(dpr, dpr);
-  g.fillStyle = "#0d2343"; g.fillRect(0, 0, box.width, box.height);
-  const parts = [...$("map").querySelectorAll(".leaflet-tile-pane img.leaflet-tile-loaded, .leaflet-tile-pane canvas, .leaflet-pane[class*='names'] img.leaflet-tile-loaded")];
-  for (const el of parts) {
-    const r = el.getBoundingClientRect();
-    if (r.right < box.left || r.left > box.right || r.bottom < box.top || r.top > box.bottom) continue;
-    if (el.tagName === "CANVAS") g.globalCompositeOperation = "lighter";
-    try { g.drawImage(el, r.left - box.left, r.top - box.top, r.width, r.height); } catch { /* a tile without permission to copy is left out */ }
-    g.globalCompositeOperation = "source-over";
-  }
-  g.fillStyle = "rgba(20, 24, 31, 0.7)"; g.fillRect(0, box.height - 22, box.width, 22);
-  g.fillStyle = "#fff"; g.font = "12px system-ui, sans-serif";
-  g.fillText(`${state.d.name}: fires seen by NASA NOAA-20 VIIRS (FIRMS). Map: Sentinel-2 cloudless by EOX, OpenStreetMap.`, 8, box.height - 7);
+function saveMap() {          // the map canvas with a caption strip
+  if (!state.mapReady) return;
+  const src = state.map.getCanvas(), out = document.createElement("canvas"), g = out.getContext("2d"), bar = 26 * (src.width / src.clientWidth);
+  out.width = src.width; out.height = src.height + bar;
+  g.drawImage(src, 0, 0);
+  g.fillStyle = "#14181f"; g.fillRect(0, src.height, out.width, bar);
+  g.fillStyle = "#fff"; g.font = `${Math.round(bar * 0.48)}px system-ui, sans-serif`;
+  g.fillText(`${state.d.name}: NASA FIRMS fire data, One Fire Record. Map: Sentinel-2 cloudless by EOX, OpenStreetMap.`, bar * 0.4, src.height + bar * 0.68);
   out.toBlob(b => b && save(b, `${state.d.id}-fire-map.png`), "image/png");
 }
 function save(blob, name) {
@@ -440,21 +679,49 @@ function save(blob, name) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-function setArea(area) {
+async function setArea(area, { scroll = true } = {}) {
+  if (area) await withMap(state.d);
   state.area = area;
   state.drawIn = true;
-  if (state.outline) state.outline.remove();
-  state.outline = area ? L.rectangle([[area.s, area.w], [area.n, area.e]], { color: "#fbfcf8", weight: 2, fill: false, dashArray: "6 4" }).addTo(state.map) : null;
+  state.map?.getSource("area")?.setData(area ? { type: "Feature", geometry: { type: "LineString", coordinates: [[area.w, area.s], [area.e, area.s], [area.e, area.n], [area.w, area.n], [area.w, area.s]] } } : empty);
   $("clear-view").hidden = !area;
   render();
-  if (area) $("answer").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+  writeHash();
+  if (area && scroll) $("answer").scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "center" });
 }
+
+// ---------- the link holds what you see, so it can be sent on ----------
+function writeHash() {
+  if (!state.d) return;
+  const p = new URLSearchParams();
+  if (state.area) p.set("area", [state.area.w, state.area.s, state.area.e, state.area.n].map(v => v.toFixed(3)).join(","));
+  if (state.layer !== "fires") p.set("layer", state.layer);
+  if (state.when !== "366") p.set("fires", state.when);
+  if (state.view !== "joined") p.set("cal", state.view);
+  if (state.strip !== "joined") p.set("trace", state.strip);
+  if (state.lang !== "en") p.set("lang", state.lang);
+  if (state.mapReady && state.mapMoved) { const c = state.map.getCenter(); p.set("map", [c.lat.toFixed(3), c.lng.toFixed(3), state.map.getZoom().toFixed(2)].join(",")); }
+  history.replaceState(null, "", `#${state.d.id}${p.size ? "&" + p : ""}`);
+}
+function readHash() {
+  const [id, ...rest] = decodeURIComponent(location.hash.slice(1)).split("&"), p = new URLSearchParams(rest.join("&")), out = { id };
+  const nums = k => (p.get(k) || "").split(",").map(Number);
+  if (p.has("area")) { const [w, s, e, n] = nums("area"); if ([w, s, e, n].every(Number.isFinite) && w < e && s < n) out.area = { w, s, e, n }; }
+  if (["burn", "unusual"].includes(p.get("layer"))) out.layer = p.get("layer");
+  if (["30", "91"].includes(p.get("fires"))) out.when = p.get("fires");
+  if (["modis", "viirs"].includes(p.get("cal"))) out.view = p.get("cal");
+  if (p.get("trace") === "counted") out.strip = "counted";
+  if (["si", "ta"].includes(p.get("lang"))) out.lang = p.get("lang");
+  if (p.has("map")) { const [lat, lng, zoom] = nums("map"); if ([lat, lng, zoom].every(Number.isFinite)) out.map = { center: [lng, lat], zoom }; }
+  return out;
+}
+const setRadio = (name, value) => { const r = document.querySelector(`input[name="${name}"][value="${value}"]`); if (r) r.checked = true; };
 
 // ---------- method ----------
 function drawMethod(d) {
   const f = d.factor, t = d.test, pct = v => (v > 0 ? "+" : "") + v + "%";
   const drift = Object.entries(d.drift), list = key => drift.map(([y, o]) => `${pct(o[key])} in ${y}`).join(", ");
-  const name = h("span", { text: d.name }).innerHTML;
+  const name = h("span", { text: d.name }).innerHTML, spot = d.spot || 300;
   $("method").innerHTML = `
     <p>NASA has watched fires with two kinds of sensor. MODIS, on the Terra and Aqua satellites, since 2000, with 1 km pixels. VIIRS, on Suomi NPP and then NOAA-20, since 2012, with 375 m pixels. VIIRS sees smaller fires, so it reports far more detections for the same burning. Until that gap is closed, the two cannot be read as one record.</p>
     <ul class="figures">
@@ -472,8 +739,8 @@ function drawMethod(d) {
     </ol>
     <h3>What this record cannot tell you</h3>
     <ul>
-      <li>A scaled month is an estimate. In a quiet month (under 10 MODIS detections) the real value fell between ${t.band.thin[0]}× and ${t.band.thin[1]}× our estimate in 8 of 10 tests; in a busy month, between ${t.band.busy[0]}× and ${t.band.busy[1]}×.</li>
-      <li>Before July 2002 only Terra was flying. Those months use a Terra-only factor and are the weakest part of the record: in a busy month the real value fell between ${t.band_terra.busy[0]}× and ${t.band_terra.busy[1]}× the Terra-only estimate in 8 of 10 tests.</li>
+      <li>A month before 2012 is an estimate. In a busy month the real value was usually within ${Math.round((1 - t.band.busy[0]) * 100)}% below to ${Math.round((t.band.busy[1] - 1) * 100)}% above it; in a quiet month (under 10 MODIS detections) the range is much wider, ${t.band.thin[0]}× to ${t.band.thin[1]}×.</li>
+      <li>Before July 2002 only Terra was flying. Those months use a Terra-only factor and are the weakest part of the record: in a busy month the real value fell between ${t.band_terra.busy[0]}× and ${t.band_terra.busy[1]}× the estimate in 8 of 10 tests.</li>
       <li>Since 2022 the Terra and Aqua orbits have drifted. With the factors learned before the drift, MODIS misses the real VIIRS total by ${list("modis")}. Terra alone: ${list("terra")}. MODIS should not be used alone for trends any more.</li>
       <li>A detection is not a fire and not a burned area. One fire can give many detections, and clouds and smoke hide fires from both sensors.</li>
       <li>Suomi NPP had gaps in June to August 2026 and stopped on 2 November 2026, so from January 2026 the record is NOAA-20, scaled by ${f.handover.toFixed(2)} (measured on 2019 to 2025).</li>
@@ -488,7 +755,8 @@ function drawMethod(d) {
       <li><a href="https://www.earthdata.nasa.gov/data/alerts-outages/transition-from-modis-viirs">NASA Earthdata, May 2025</a>: Terra and Aqua shut down from late 2026 and are drifting.</li>
       <li><a href="https://essd.copernicus.org/articles/18/7535/2026/">Chen et al. 2026</a>: region-specific scaling between VIIRS and MODIS fire records, the published method closest to ours.</li>
       <li><a href="https://doi.org/10.1016/j.rse.2016.02.054">Giglio et al. 2016</a> and <a href="https://doi.org/10.1016/j.rse.2013.12.008">Schroeder et al. 2014</a>: the MODIS and VIIRS fire algorithms.</li>
-      <li>Map: the fire dots are this year's NOAA-20 detections, rounded to 0.01 degree (about 1 km). The area tool sums our own 0.1 degree squares.</li>
+      <li>Map: the fire dots are this year's NOAA-20 detections, rounded to 1/${spot} degree (about ${Math.round(111320 / spot)} m, one VIIRS pixel). The area tool, "when it burns" and "unusual now" use our own ${d.coarse_deg.toFixed(d.coarse_deg < 1 ? 1 : 2)} degree squares.</li>
+      <li>The seam picture: Aqua MODIS and Suomi NPP VIIRS detections of one day from the yearly country files, each drawn with NASA's scan and track size.</li>
     </ul>`;
 }
 
@@ -510,19 +778,20 @@ async function getJSON(url) {       // "no-cache" asks the server if the file ch
   return r.json();
 }
 function render() {
-  const d = state.d;
-  state.rec = join(d, counts(d, state.area));
-  drawAnswer(d, state.rec);
-  drawStrip(d, state.rec);
-  drawCalendar(d, state.rec);
-  drawMonths(d, state.rec);
-  drawYears(d, state.rec);
+  const d = state.d, rec = state.rec = join(d, counts(d, state.area)), token = state.renderToken = {};
+  drawAnswer(d, rec);
+  drawPace(d, rec);
+  // the charts further down, one short task each, so a slow phone never freezes while the first screen appears
+  const rest = [drawStrip, drawCalendar, drawMonths, drawYears];
+  const next = () => { if (state.renderToken === token && rest.length) { rest.shift()(d, rec); setTimeout(next, 0); } };
+  setTimeout(next, 0);
 }
-async function load(id) {
+async function load(id, { fly = false, area = null, view = null } = {}) {
   document.body.classList.add("busy");
   let d;
   try {
-    d = state.cache[id] ??= await getJSON(`data/${id}.json`);
+    const early = window.firstRecord?.id === id ? await window.firstRecord.data : null;   // started in the page head
+    d = state.cache[id] ??= early || await getJSON(`data/${id}.json`);
   } catch {
     $("answer").textContent = "The fire record could not load.";
     $("answer-detail").textContent = "Check the connection, then pick the place again.";
@@ -532,37 +801,63 @@ async function load(id) {
   document.body.classList.remove("busy");
   state.d = d;
   state.drawIn = true;
-  state.area = null;
-  if (state.outline) { state.outline.remove(); state.outline = null; }
-  $("clear-view").hidden = true;
+  state.area = area;
+  state.map?.getSource("area")?.setData(empty);
+  $("clear-view").hidden = !area;
+  $("feed").href = `feed/${id}.xml`;
   const check = join(d, counts(d, null)).joined;
   console.assert(check.every((v, i) => v === d.joined[i]), "page join differs from pipeline join");
-  render();
-  drawMethod(d);
-  drawMap(d);
-  history.replaceState(null, "", `#${id}`);
+  if (area) await setArea(area, { scroll: false }); else render();
+  if ($("method-box").open) drawMethod(d); else $("method").replaceChildren();   // built when the fold opens
+  drawSeam(d);
+  state.mapMoved = !!view;
+  await drawMap(d, { fly, view });
+  writeHash();
 }
 async function start() {
-  const places = await getJSON("data/index.json"), select = $("place");
+  const places = (await window.firstRecord?.index) || await getJSON("data/index.json"), select = $("place"), want = readHash();
   select.replaceChildren(...places.map(p => h("option", { value: p.id, text: p.name })));
-  const wanted = decodeURIComponent(location.hash.slice(1));
-  select.value = places.some(p => p.id === wanted) ? wanted : places.some(p => p.id === "Sri_Lanka") ? "Sri_Lanka" : places[0].id;
-  select.addEventListener("change", () => load(select.value));
-  addEventListener("hashchange", () => { const id = decodeURIComponent(location.hash.slice(1)); if (id !== state.d.id && places.some(p => p.id === id)) { select.value = id; load(id); } });
-  $("view").addEventListener("change", e => { state.view = e.target.value; drawCalendar(state.d, state.rec); });
-  if (!window.L) document.querySelector(".map").replaceChildren(h("p", { class: "note", text: "The map could not load. The charts above still cover the whole country." }));
-  $("use-view").hidden = !window.L;
-  $("use-view").addEventListener("click", () => { if (!state.map) return; const b = state.map.getBounds(); setArea({ w: b.getWest(), e: b.getEast(), s: b.getSouth(), n: b.getNorth() }); });
+  select.value = places.some(p => p.id === want.id) ? want.id : places.some(p => p.id === "Sri_Lanka") ? "Sri_Lanka" : places[0].id;
+  for (const k of ["layer", "when", "view", "strip", "lang"]) if (want[k]) state[k] = want[k];
+  setRadio("layer", state.layer); setRadio("when", state.when); setRadio("view", state.view); setRadio("strip", state.strip); setRadio("lang", state.lang);
+  applyLang();
+  select.addEventListener("change", () => load(select.value, { fly: true }));
+  addEventListener("hashchange", () => { const w = readHash(); if (w.id !== state.d.id && places.some(p => p.id === w.id)) { select.value = w.id; load(w.id, { fly: true }); } });
+  $("view").addEventListener("change", e => { state.view = e.target.value; drawCalendar(state.d, state.rec); writeHash(); });
+  $("strip-view").addEventListener("change", e => { state.strip = e.target.value; drawStrip(state.d, state.rec); writeHash(); });
+  $("layer").addEventListener("change", e => { state.layer = e.target.value; drawCells(); writeHash(); });
+  $("when").addEventListener("change", e => { state.when = e.target.value; drawFires(); writeHash(); });
+  $("lang").addEventListener("change", e => { state.lang = e.target.value; applyLang(); drawAnswer(state.d, state.rec); writeHash(); });
+  $("use-view").addEventListener("click", () => {
+    if (!state.mapReady) return;
+    if (state.map.getZoom() < 4) { $("map-note").textContent = "Zoom in to a region first: the area must be smaller than a continent."; return; }
+    const b = state.map.getBounds();
+    setArea({ w: b.getWest(), e: b.getEast(), s: b.getSouth(), n: b.getNorth() });
+  });
   $("clear-view").addEventListener("click", () => setArea(null));
+  $("share").addEventListener("click", async () => {
+    state.mapMoved = state.mapReady; writeHash();
+    const url = location.href, b = $("share");
+    try {
+      if (navigator.share && matchMedia("(pointer: coarse)").matches) await navigator.share({ title: document.title, url });
+      else { await navigator.clipboard.writeText(url); b.textContent = "Link copied"; setTimeout(() => applyLang(), 1800); }
+    } catch { /* the user closed the share sheet */ }
+  });
   $("download").addEventListener("click", download);
   $("download-fires").addEventListener("click", downloadFires);
   $("save-map").addEventListener("click", saveMap);
-  $("when").addEventListener("change", e => { state.when = e.target.value; drawFires(); });
   calendarEvents();
+  $("method-box").addEventListener("toggle", e => { if (e.target.open && !$("method").firstChild) drawMethod(state.d); });
+  $("table").closest("details").addEventListener("toggle", e => { if (e.target.open) drawCalendar(state.d, state.rec); });
   addEventListener("pointerdown", e => { if (!e.target.closest("#calendar, svg")) hideTips(); });
   addEventListener("scroll", hideTips, { passive: true });
   let width = innerWidth;
-  addEventListener("resize", () => { if (innerWidth !== width) { width = innerWidth; render(); state.map?.invalidateSize(); } });
-  await load(select.value);
+  addEventListener("resize", () => { if (innerWidth !== width) { width = innerWidth; render(); } });
+  await load(select.value, { area: want.area || null, view: want.map || null });
+  // the globe loads when it comes near the screen, or at once when the link points at a map view
+  const mapStart = () => makeMap().then(() => { state.map.on("dragstart", () => (state.mapMoved = true)); state.map.on("zoomstart", e => { if (e.originalEvent) state.mapMoved = true; }); return drawMap(state.d, { fly: !want.map && !calm(), view: want.map || null }); }).then(() => { if (state.area) setArea(state.area, { scroll: false }); })
+    .catch(() => { $("map").replaceChildren(h("p", { class: "note map-wait", text: "The map could not load (it needs WebGL). The charts still cover the whole country." })); $("use-view").hidden = true; });
+  if (want.map || want.layer) mapStart();
+  else new IntersectionObserver((entries, io) => { if (entries.some(e => e.isIntersecting)) { io.disconnect(); mapStart(); } }, { rootMargin: "400px" }).observe($("map"));
 }
 start().catch(err => { $("answer").textContent = "The fire record could not be loaded."; $("answer-detail").textContent = String(err.message || err); });
