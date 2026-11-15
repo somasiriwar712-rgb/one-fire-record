@@ -11,7 +11,9 @@
 <script>
 // start the place list and the record now, while the page and its script load
 (function () {
-  var id = decodeURIComponent(location.hash.slice(1)).split("&")[0] || "Sri_Lanka";
+  var raw = location.hash.slice(1);
+  try { raw = decodeURIComponent(raw); } catch (e) { /* a stray % in a cut link */ }
+  var id = raw.split("&")[0] || "Sri_Lanka";
   var get = function (url) { return fetch(url, { cache: "no-cache" }).then(function (r) { if (!r.ok) throw 0; return r.json(); }).catch(function () { return null; }); };
   window.firstRecord = { id: id, index: get("data/index.json"), data: /^[A-Za-z_]+$/.test(id) ? get("data/" + id + ".json") : Promise.resolve(null) };
 })();
@@ -161,6 +163,6 @@ STORY: is this month normal, is this season ahead, where does it burn, why the o
 </footer>
 
 <div id="tip" class="tip" role="status" hidden></div>
-<script src="app.js?v=2" defer></script>
+<script src="app.js?v=3" defer></script>
 </body>
 </html>

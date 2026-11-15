@@ -238,7 +238,8 @@ function drawPace(d, rec) {
   const path = a => "M" + pad.l + "," + y(0) + a.map((v, k) => `L${x(k).toFixed(1)},${y(v).toFixed(1)}`).join("");
   const band = order.map((_, k) => { const vals = past.map(fy => runs[fy][k]).sort((a, b) => a - b); return [quantile(vals, 0.25), quantile(vals, 0.5), quantile(vals, 0.75)]; });
   svg.append(s("path", { d: "M" + band.map((b, k) => `${x(k).toFixed(1)},${y(b[2]).toFixed(1)}`).join("L") + "L" + band.map((b, k) => `${x(k).toFixed(1)},${y(b[0]).toFixed(1)}`).reverse().join("L") + "Z", fill: "var(--fire-1)" }));
-  const est = fy => (start ? fy + 1 : fy) < 2012;   // fire years that end before VIIRS: estimated from MODIS
+  const estMonths = fy => Math.max(0, Math.min(12, 2012 * 12 + 1 - (fy * 12 + start)));   // months before February 2012: estimated from MODIS
+  const est = fy => estMonths(fy) > 6;
   for (const fy of past) svg.append(s("path", { d: path(runs[fy]), fill: "none", stroke: est(fy) ? "var(--ink-3)" : "var(--ink-2)", "stroke-width": 0.8, opacity: 0.35, "stroke-dasharray": est(fy) ? "3 2" : null }));
   svg.append(s("path", { d: path(band.map(b => b[1])), fill: "none", stroke: "var(--ink)", "stroke-width": 1.25, "stroke-dasharray": "5 3" }));
   svg.append(s("text", { x: x(11) + 4, y: y(band[11][1]) + 4, class: "label" }, "middle"));
@@ -256,7 +257,7 @@ function drawPace(d, rec) {
     const k = Math.max(0, Math.min(11, Math.round((px - pad.l) / (W - pad.l - pad.r) * 12 - 1)));
     const all = [...past.map(fy => [fy, runs[fy][k]]), ...(k <= nowP && cur.length ? [[nowFy, cur[k]]] : [])];
     const [fy, v] = all.reduce((a, b) => (Math.abs(y(b[1]) - py) < Math.abs(y(a[1]) - py) ? b : a));
-    return `<b>${fyName(fy)}: ${fmt(v)}</b>detections from ${FULL[start]} to the end of ${FULL[order[k]]}${est(fy) ? "<br><small>estimated from MODIS</small>" : ""}`;
+    return `<b>${fyName(fy)}: ${fmt(v)}</b>detections from ${FULL[start]} to the end of ${FULL[order[k]]}${estMonths(fy) === 12 ? "<br><small>estimated from MODIS</small>" : estMonths(fy) ? `<br><small>${estMonths(fy)} of 12 months estimated from MODIS</small>` : ""}`;
   });
   box.replaceChildren(svg);
   const where = state.area ? "your area" : d.name;
@@ -618,7 +619,7 @@ function drawFires() {
   for (let k = 2; k < fires.pts.length; k += 4) if (fires.last - fires.pts[k] < +state.when) shown++;
   state.shown = shown;
   const until = dayLabel(fires.year, fires.last);
-  $("map-note").textContent = `${fmt(shown)} spots where NASA's NOAA-20 satellite saw fire in ${d.name}${state.when === "366" ? ` in ${fires.year}` : `, ${state.when === "30" ? "30 days" : "3 months"} up to ${until}`}. Zoomed out, they glow as a heat map; zoom in and each dot is one satellite pixel, about ${Math.round(111320 / fires.scale)} m. Tap a dot for its date. The last three months are provisional.`;
+  $("map-note").textContent = `${fmt(shown)} spots where NASA's NOAA-20 satellite saw fire in ${d.name}${state.when === "366" ? ` in ${fires.year}` : `, ${state.when === "30" ? "30 days" : "3 months"} up to ${until}`}. Zoomed out, they glow as a heat map; zoom in and each dot is one satellite pixel, about ${Math.round(111320 / fires.scale)} m. Tap a dot for its date. A dot is a spot that was burning when the satellite passed: often a field being cleared or a grass fire, sometimes a wildfire. Most are too small to make the news.${d.provisional_from ? ` Fires from ${FULL[+d.provisional_from.slice(5) - 1]} on are near-real-time data, so provisional.` : ""}`;
   $("map-key").replaceChildren(...AGES.filter(([days], i) => i === 0 || AGES[i - 1][0] < +state.when).map(([, color, text]) => h("span", { class: "key" }, h("i", { class: "dot", style: `background:${color}` }), text)));
 }
 function square(x0, y0, size) { return { type: "Polygon", coordinates: [[[x0, y0], [x0 + size, y0], [x0 + size, y0 + size], [x0, y0 + size], [x0, y0]]] }; }
@@ -701,10 +702,13 @@ function writeHash() {
   if (state.strip !== "joined") p.set("trace", state.strip);
   if (state.lang !== "en") p.set("lang", state.lang);
   if (state.mapReady && state.mapMoved) { const c = state.map.getCenter(); p.set("map", [c.lat.toFixed(3), c.lng.toFixed(3), state.map.getZoom().toFixed(2)].join(",")); }
-  history.replaceState(null, "", `#${state.d.id}${p.size ? "&" + p : ""}`);
+  const q = p.toString();   // not p.size: Safari before iOS 17 has no size, and the link would lose its settings
+  history.replaceState(null, "", `#${state.d.id}${q ? "&" + q : ""}`);
 }
 function readHash() {
-  const [id, ...rest] = decodeURIComponent(location.hash.slice(1)).split("&"), p = new URLSearchParams(rest.join("&")), out = { id };
+  let raw = location.hash.slice(1);
+  try { raw = decodeURIComponent(raw); } catch { /* a cut link with a stray %: read it as it is */ }
+  const [id, ...rest] = raw.split("&"), p = new URLSearchParams(rest.join("&")), out = { id };
   const nums = k => (p.get(k) || "").split(",").map(Number);
   if (p.has("area")) { const [w, s, e, n] = nums("area"); if ([w, s, e, n].every(Number.isFinite) && w < e && s < n) out.area = { w, s, e, n }; }
   if (["burn", "unusual"].includes(p.get("layer"))) out.layer = p.get("layer");
@@ -822,7 +826,7 @@ async function start() {
   setRadio("layer", state.layer); setRadio("when", state.when); setRadio("view", state.view); setRadio("strip", state.strip); setRadio("lang", state.lang);
   applyLang();
   select.addEventListener("change", () => load(select.value, { fly: true }));
-  addEventListener("hashchange", () => { const w = readHash(); if (w.id !== state.d.id && places.some(p => p.id === w.id)) { select.value = w.id; load(w.id, { fly: true }); } });
+  addEventListener("hashchange", () => { if (places.some(p => p.id === readHash().id)) location.reload(); });   // a pasted link: reload so its area, layer and view all apply (the skip link #answer is not a place)
   $("view").addEventListener("change", e => { state.view = e.target.value; drawCalendar(state.d, state.rec); writeHash(); });
   $("strip-view").addEventListener("change", e => { state.strip = e.target.value; drawStrip(state.d, state.rec); writeHash(); });
   $("layer").addEventListener("change", e => { state.layer = e.target.value; drawCells(); writeHash(); });
