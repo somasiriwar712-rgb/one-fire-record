@@ -37,22 +37,27 @@ API = "https://firms.modaps.eosdis.nasa.gov/api"
 YEAR = date.today().year
 FINE = 0.1          # the grid of the country's past fires, which sets the box asked for
 NEAR = 0.01         # the fixed-hot-source grid, about 1 km
+with open(os.path.join(HERE, "border-names.json")) as _fh:
+    NAMES = json.load(_fh)   # FIRMS file name -> Natural Earth ADMIN name, where they differ
 BAND = 0.05         # latitude bands that index the border's edges, so each point is tested against few edges
 BORDERS = os.path.join(DATA, "borders", "ne_10m_admin_0_countries.geojson")
 FIELDS = ["latitude", "longitude", "acq_date", "acq_time", "satellite", "confidence", "version", "frp", "daynight", "type"]
 
 
 def get(url, key):
-    """GET text from the API; retries network errors. The key is never printed."""
-    for attempt in range(4):
+    """GET text from the API; retries network errors and waits out the 5000-calls-per-10-minutes limit. The key is never printed."""
+    for attempt in range(15):
         try:
             with urllib.request.urlopen(url, timeout=180) as r:
                 text = r.read().decode()
-            break
+            if "limit" not in text[:300].lower():
+                break
+            err = text.strip()[:200]
         except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
-            if attempt == 3:
-                sys.exit(f"network error: {str(e).replace(key, 'KEY')}")
-            time.sleep(10 * (attempt + 1))
+            err = str(e)
+        if attempt == 14:
+            sys.exit(f"network error: {err.replace(key, 'KEY')}")
+        time.sleep(60 if "limit" in err.lower() else 10 * min(attempt + 1, 6))
     if text.strip() and not text.startswith(("latitude", "data_id")):
         sys.exit(f"FIRMS said: {text.strip()[:200].replace(key, 'KEY')}")   # e.g. a wrong key or too many calls
     return text
@@ -63,7 +68,8 @@ def border(country):
     if not os.path.exists(BORDERS):
         sys.exit(f"missing {BORDERS}: download ne_10m_admin_0_countries.geojson from natural-earth-vector/geojson")
     with open(BORDERS) as fh:
-        geo = next((f["geometry"] for f in json.load(fh)["features"] if f["properties"]["ADMIN"] == country.replace("_", " ")), None)
+        admin = NAMES.get(country, country.replace("_", " "))
+        geo = next((f["geometry"] for f in json.load(fh)["features"] if f["properties"]["ADMIN"] == admin), None)
     if geo is None:
         sys.exit(f"{country}: no such ADMIN name in the Natural Earth file")
     bands = defaultdict(list)
@@ -148,16 +154,24 @@ def fetch(country, key, spans):
 
 def main():
     countries = sys.argv[1:] or sys.exit(__doc__)
-    with open(os.path.join(DATA, "firms-key.txt")) as fh:
+    with open(os.environ.get("FIRMS_KEY_FILE", os.path.join(DATA, "firms-key.txt"))) as fh:
         key = fh.read().strip()
     avail = {r["data_id"]: r for r in csv.DictReader(io.StringIO(get(f"{API}/data_availability/csv/{key}/all", key)))}
     day = lambda k, f: date.fromisoformat(avail[k][f]) if k in avail else None
     sp_until, nrt_from = day("VIIRS_NOAA20_SP", "max_date"), day("VIIRS_NOAA20_NRT", "min_date")
     print(f"NOAA-20 in the API: science-quality to {sp_until}, near-real-time from {nrt_from}")
     spans = list(chunks(sp_until, nrt_from))
-    with ThreadPoolExecutor(4) as pool:   # 4 countries at once keeps far under the 5000 calls per 10 minutes
-        for line in pool.map(lambda c: fetch(c, key, spans), countries):
-            print(line)
+    def safe(c):   # one bad country must not stop the others; the run still fails at the end
+        try:
+            return fetch(c, key, spans)
+        except (SystemExit, Exception) as e:
+            return f"FAILED {c}: {str(e).replace(key, 'KEY')}"
+    failed = 0
+    with ThreadPoolExecutor(8) as pool:   # 8 countries at once keeps far under the 5000 calls per 10 minutes
+        for line in pool.map(safe, countries):
+            print(line, flush=True)
+            failed += line.startswith("FAILED")
+    sys.exit(f"{failed} countries failed" if failed else 0)
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ Made for the NASA Space Apps Challenge 2026 (challenge "Harmonization of MODIS a
 - **Downloads and a feed:** the monthly record (CSV), this year's fires (CSV, opens in QGIS or Excel), the map as a picture (PNG), and an RSS feed per place.
 - **Updates itself:** a weekly GitHub Action fetches the newest months and republishes.
 
-Places so far: Sri Lanka, Nepal, Thailand, Kenya, Greece, Portugal, Chile and Argentina. The scripts work for any country.
+Places: 120 countries, every one that passes all the tests. The numbers below come from the first eight: Sri Lanka, Nepal, Thailand, Kenya, Greece, Portugal, Chile and Argentina.
 
 ## How the two records are joined
 

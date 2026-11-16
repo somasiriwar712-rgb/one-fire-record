@@ -58,6 +58,8 @@ def shape(geo, tol, min_ring, places):
 
 
 def main():
+    with open(os.path.join(HERE, "border-names.json")) as fh:
+        to_id = {v: k for k, v in json.load(fh).items()}   # Natural Earth ADMIN name -> FIRMS file name
     with open(os.path.join(SITE, "index.json")) as fh:
         have = {p["id"] for p in json.load(fh)}
     with open(BORDERS) as fh:
@@ -65,10 +67,12 @@ def main():
     out = []
     for f in world["features"]:
         name = f["properties"]["ADMIN"]
+        cid = to_id.get(name, name.replace(" ", "_"))
         polys = shape(f["geometry"], TOLERANCE, MIN_RING, 2)
+        if not polys and cid in have:   # small islands with a fire record must stay tappable
+            polys = shape(f["geometry"], FINE[0], 0, 3)
         if not polys:
             continue
-        cid = name.replace(" ", "_")
         if cid in have:
             with open(os.path.join(SITE, f"{cid}.outline.json"), "w") as fh:
                 json.dump({"type": "Feature", "properties": {"id": cid}, "geometry": {"type": "MultiPolygon", "coordinates": shape(f["geometry"], *FINE, 3)}}, fh, separators=(",", ":"))

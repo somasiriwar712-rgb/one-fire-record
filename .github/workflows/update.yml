@@ -28,7 +28,8 @@ jobs:
           key: firms-${{ hashFiles('site/data/index.json') }}-${{ github.run_id }}
           restore-keys: firms-${{ hashFiles('site/data/index.json') }}-
       - name: Places
-        run: echo "PLACES=$(python3 -c "import json; print(' '.join(p['id'] for p in json.load(open('site/data/index.json'))))")" >> "$GITHUB_ENV"
+        # shortcut: only the first 8 places update weekly; all ~190 need 28 GB of yearly files, more than a free runner holds. The rest are refreshed by hand.
+        run: echo "PLACES=Argentina Chile Greece Kenya Nepal Portugal Sri_Lanka Thailand" >> "$GITHUB_ENV"
       - name: Yearly NASA files (no login)
         run: for c in $PLACES; do pipeline/fetch-country.sh "$c"; done
       - name: Natural Earth country borders (public domain)
