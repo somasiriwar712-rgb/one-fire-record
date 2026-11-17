@@ -22,5 +22,5 @@ fetch() { # sensor first_year
 fetch modis 2000
 fetch viirs-snpp 2012
 fetch viirs-jpss1 2018
-echo "$country: $(ls "$out"/*/*_"$country".csv 2>/dev/null | wc -l) files, $(cat "$out"/*/*_"$country".csv 2>/dev/null | wc -c) bytes"
+echo "$country: $(ls "$out"/*/*_[0-9][0-9][0-9][0-9]_"$country".csv 2>/dev/null | wc -l) files, $(cat "$out"/*/*_[0-9][0-9][0-9][0-9]_"$country".csv 2>/dev/null | wc -c) bytes"
 exit $fail

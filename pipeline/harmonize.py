@@ -17,8 +17,9 @@ import glob
 import json
 import os
 import sys
+import unicodedata
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import format_datetime
 from xml.sax.saxutils import escape
 
@@ -27,6 +28,11 @@ DATA = os.path.join(HERE, "..", "..", "resources", "data", "firms")
 SITE = os.path.join(HERE, "..", "site", "data")
 FEED = os.path.join(HERE, "..", "site", "feed")
 URL = "https://somasiriwar712-rgb.github.io/one-fire-record/"
+NAMES = {"Brunei_Darussalam": "Brunei", "Cape_Verde": "Cabo Verde", "Cote_d_Ivoire": "Côte d'Ivoire", "Curacao": "Curaçao",
+         "Czech_Republic": "Czechia", "Dem_Rep_Korea": "North Korea", "Lao_PDR": "Laos", "Macedonia_Former_Yugoslav_Republic_of": "North Macedonia",
+         "Republic_of_Congo": "Republic of the Congo", "Republic_of_Korea": "South Korea", "Russian_Federation": "Russia",
+         "Sao_Tome_and_Principe": "São Tomé and Príncipe", "Swaziland": "Eswatini", "Turkey": "Türkiye", "Reunion": "Réunion"}   # shown names where NASA's file name reads badly
+display = lambda c: NAMES.get(c, c.replace("_", " "))
 FULL = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 
 SPOT = 300                      # fire dots for the map are kept on a 1/300-degree grid, about 370 m, one VIIRS pixel
@@ -64,7 +70,7 @@ def count_country(country):
     provisional = None
     fires = {}                                      # the newest year's NOAA-20 fires on a 1/300-degree grid (about one VIIRS pixel): spot -> [last day of year, detections]
     for sensor, folder in FOLDERS.items():
-        for path in sorted(glob.glob(os.path.join(DATA, folder, f"{folder}_*_{country}.csv"))):
+        for path in sorted(glob.glob(os.path.join(DATA, folder, f"{folder}_[0-9][0-9][0-9][0-9]_{country}.csv"))):
             year = os.path.basename(path).split("_")[1]
             last[sensor] = year + "-12"             # a past year's file covers the whole year, fires or not
             partial = int(year) >= date.today().year   # this year's file stops at its newest detection
@@ -87,8 +93,9 @@ def count_country(country):
                         spot = fires.setdefault((round(float(row["latitude"]) * SPOT), round(float(row["longitude"]) * SPOT)), [0, 0])
                         spot[0] = max(spot[0], date.fromisoformat(row["acq_date"]).timetuple().tm_yday)
                         spot[1] += 1
-            if partial and newest:
-                last[sensor] = newest
+            if partial:   # fetch-recent.py asks for 1 January to the end of the month before the day it ran: quiet months are 0, not missing
+                ran = date.fromtimestamp(os.path.getmtime(path)).replace(day=1) - timedelta(days=1)
+                last[sensor] = max(newest, f"{ran.year}-{ran.month:02d}") if ran.year == int(year) else (newest or year + "-01")
     return months, grid, dict(rows_read), last, provisional, fires
 
 
@@ -157,6 +164,8 @@ def test_join(modis, viirs):
             result[name]["abs"] += sum(abs(p - s) for p, s in zip(pred, seen))
             if name == "monthly":
                 ratios += [(modis.get(m, 0), s / p) for m, p, s in zip(hidden, pred, seen) if p > 0]
+    if not ratios:
+        return None                              # no month with a prediction: too little fire to test the join
     for name in ("monthly", "fixed"):
         errs = [abs(e) for e in result[name]["year_err"]]
         result[name]["year_err_mean"] = round(sum(errs) / len(errs), 1)
@@ -167,8 +176,9 @@ def test_join(modis, viirs):
     busy = [r for m, r in ratios if m >= 10]
     every = [r for _, r in ratios]
     result["band"] = {
-        "thin": [round(quantile(thin if len(thin) >= 15 else every, q), 2) for q in (0.1, 0.9)],
-        "busy": [round(quantile(busy if len(busy) >= 15 else every, q), 2) for q in (0.1, 0.9)],
+        # widened to hold 1, so an estimate always sits inside its own range (thin places can miss both ways in one direction)
+        "thin": [f(round(quantile(thin if len(thin) >= 15 else every, q), 2), 1) for q, f in ((0.1, min), (0.9, max))],
+        "busy": [f(round(quantile(busy if len(busy) >= 15 else every, q), 2), 1) for q, f in ((0.1, min), (0.9, max))],
     }
     return result
 
@@ -275,6 +285,9 @@ def fire_bounds(grid_rows, c):
     return [[round(edge(0, 0.01), 3), round(edge(1, 0.01), 3)], [round(edge(0, 0.99) + c, 3), round(edge(1, 0.99) + c, 3)]]
 
 
+WORDS = ["far below normal", "below normal", "normal", "above normal", "far above normal"]
+
+
 def verdict(joined, i):
     """The page's answer for month i (drawAnswer in app.js): its rank among the same calendar month in earlier years."""
     same = sorted(joined[k] for k in range(i - 12, -1, -12))
@@ -315,7 +328,7 @@ def run(country):
     if out is None:
         print(f"{country}: too few fires in {FIT_YEARS[0]} to {FIT_YEARS[-1]} to learn a factor")
         return False
-    lines = sum(sum(1 for _ in open(p)) - 1 for folder in FOLDERS.values() for p in glob.glob(os.path.join(DATA, folder, f"{folder}_*_{country}.csv")))
+    lines = sum(sum(1 for _ in open(p)) - 1 for folder in FOLDERS.values() for p in glob.glob(os.path.join(DATA, folder, f"{folder}_[0-9][0-9][0-9][0-9]_{country}.csv")))
     assert lines == sum(rows_read.values()), f"{country}: read {sum(rows_read.values())} rows, files hold {lines}"
     index = {m: i for i, m in enumerate(month_range(out["first"], "2099-12")) if i < len(out["joined"])}
     layers = map_layers(grid, out)
@@ -324,7 +337,7 @@ def run(country):
     for (sensor, x, y), per_month in grid.items():
         cells[(x, y)][sensor] = {index[m]: n for m, n in per_month.items() if m in index}
     grid_rows = [[x, y, c["modis"], c["snpp"], c["n20"]] for (x, y), c in sorted(cells.items())]
-    out.update(id=country, name=country.replace("_", " "), rows_read=rows_read, coarse_deg=coarse_deg, provisional_from=provisional, spot=SPOT,
+    out.update(id=country, name=display(country), rows_read=rows_read, coarse_deg=coarse_deg, provisional_from=provisional, spot=SPOT,
                bounds=fire_bounds(grid_rows, coarse_deg))
     os.makedirs(SITE, exist_ok=True)
     path = os.path.join(SITE, f"{country}.json")
@@ -350,8 +363,17 @@ def main():
     if not done:
         sys.exit("nothing written")
     names = sorted(n for n in (os.path.basename(p)[:-5] for p in glob.glob(os.path.join(SITE, "*.json"))) if "." not in n and n not in ("index", "countries"))   # not Sri_Lanka.fires etc.
-    with open(os.path.join(SITE, "index.json"), "w") as fh:
-        json.dump([{"id": n, "name": n.replace("_", " ")} for n in names], fh)
+    plain = lambda p: unicodedata.normalize("NFKD", p["name"]).encode("ascii", "ignore").decode()   # Côte sorts with Costa, not after Czechia
+    def now(n):   # this place's newest measured month and its verdict, for the world map: [0..4 as in WORDS, "yyyy-mm"]
+        with open(os.path.join(SITE, f"{n}.json")) as fh:
+            d = json.load(fh)
+        i = max(d["src"].rfind("s"), d["src"].rfind("n"))
+        k = int(d["first"][5:]) - 1 + i
+        return [WORDS.index(verdict(d["joined"], i)[0]), f"{int(d['first'][:4]) + k // 12}-{k % 12 + 1:02d}"]
+    part = os.path.join(SITE, f"index.json.{os.getpid()}.part")   # one per run, so overlapping runs never share it
+    with open(part, "w") as fh:
+        json.dump(sorted(({"id": n, "name": display(n), "now": now(n)} for n in names), key=plain), fh, ensure_ascii=False)   # the place list reads in name order
+    os.replace(part, os.path.join(SITE, "index.json"))   # never a half-written list, even when runs overlap
 
 
 if __name__ == "__main__":

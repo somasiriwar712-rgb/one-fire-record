@@ -187,11 +187,44 @@ Object.assign(T.ta, {
   ages: ["தரவின் கடைசி 7 நாட்கள்", "8 முதல் 30 நாட்களுக்கு முன்", "1 முதல் 3 மாதங்களுக்கு முன்", "ஆண்டின் முன்பகுதியில்"],
 });
 const words = () => ({ ...T.en, ...T[state.lang] });
+const nameOf = id => T[state.lang].names?.[id] ?? state.places?.find(p => p.id === id)?.name ?? id.replace(/_/g, " ");
+Object.assign(T.en, { find: "Find a place", findHint: "Type a country", worldList: "Every country this month", worldKey: (mon, y) => `Countries, ${mon} ${y}:` });
+Object.assign(T.si, { find: "ස්ථානයක් සොයන්න", findHint: "රටක නම ලියන්න", worldList: "මේ මාසයේ සියලු රටවල්", worldKey: (mon, y) => `රටවල්, ${y} ${mon}:` });
+Object.assign(T.ta, { find: "இடத்தைத் தேடு", findHint: "நாட்டின் பெயரை எழுதுங்கள்", worldList: "இந்த மாதம் எல்லா நாடுகளும்", worldKey: (mon, y) => `நாடுகள், ${mon} ${y}:` });
+
+// ---------- the world: every country's newest month, on the globe and in a list ----------
+function drawWorld() {
+  const t = words(), ps = state.places.filter(p => p.now), seen = {};
+  for (const p of ps) seen[p.now[1]] = (seen[p.now[1]] || 0) + 1;
+  const month = Object.entries(seen).sort((a, b) => b[1] - a[1])[0]?.[0];   // most places share one newest month
+  $("place-list").replaceChildren(...state.places.map(p => h("option", { value: nameOf(p.id) })));
+  $("find").placeholder = t.findHint;
+  if (!month) return;
+  const [y, m] = month.split("-").map(Number);
+  $("world-key").replaceChildren(h("span", { text: t.worldKey(t.months[m - 1], y) }), ...UNUSUAL.map(([, c], i) => h("span", { class: "key" }, h("i", { style: `background:${c}` }), t.verdicts[i])));
+  $("world-list").replaceChildren(...[4, 3, 2, 1, 0].map(w => {
+    const here = ps.filter(p => p.now[0] === w).sort((a, b) => nameOf(a.id).localeCompare(nameOf(b.id)));
+    if (!here.length) return "";
+    return h("div", { class: "world-group" }, h("h3", {}, h("i", { style: `background:${UNUSUAL[w][1]}` }), `${t.verdicts[w]} (${here.length})`),
+      h("p", {}, ...here.flatMap((p, k) => [k ? ", " : "", h("a", { href: `#${p.id}`, "data-id": p.id, text: nameOf(p.id) + (p.now[1] !== month ? ` (${p.now[1]})` : "") })])));
+  }));
+  paintWorld();
+}
+function paintWorld() {   // the globe: each country with a record in its this-month colour
+  if (!state.mapReady || !state.places) return;
+  for (const p of state.places) if (p.now) state.map.setFeatureState({ source: "countries", id: p.id }, { w: p.now[0] });
+}
+function openPlace(id) {
+  if (!state.places.some(p => p.id === id)) return false;
+  $("place").value = id;
+  load(id, { fly: true });
+  return true;
+}
 const placeName = d => T[state.lang].names?.[d.id] ?? d.name;
 function applyLang() {
   const t = T[state.lang];
   document.documentElement.lang = state.lang;
-  document.querySelectorAll("#place option").forEach(o => { o.textContent = T[state.lang].names?.[o.value] ?? o.value.replace(/_/g, " "); });
+  document.querySelectorAll("#place option").forEach(o => { o.textContent = nameOf(o.value); });
   document.querySelectorAll("[data-t]").forEach(e => {
     e.dataset.en ??= e.textContent;
     e.textContent = t[e.dataset.t] ?? e.dataset.en;
@@ -571,7 +604,7 @@ async function makeMap() {
       sources: {
         sat: { type: "raster", tiles: [EOX + "s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg"], tileSize: 256, maxzoom: 15, attribution: '<a href="https://s2maps.eu">Sentinel-2 cloudless 2020</a> by EOX' },
         names: { type: "raster", tiles: [EOX + "overlay_bright_3857/default/g/{z}/{y}/{x}.png"], tileSize: 256, maxzoom: 15, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' },
-        countries: { type: "geojson", data: "data/countries.json", attribution: "Natural Earth" },
+        countries: { type: "geojson", data: "data/countries.json", attribution: "Natural Earth", promoteId: "id" },
         fires: { type: "geojson", data: empty, attribution: '<a href="https://firms.modaps.eosdis.nasa.gov/">NASA FIRMS</a>' },
         cells: { type: "geojson", data: empty },
         area: { type: "geojson", data: empty },
@@ -594,7 +627,9 @@ async function makeMap() {
           "line-color": ["case", ["==", ["get", "has"], 1], "#ffd27a", "rgba(255,255,255,0.35)"],
           "line-width": ["interpolate", ["linear"], ["zoom"], 1, ["case", ["==", ["get", "has"], 1], 1.2, 0.4], 6, ["case", ["==", ["get", "has"], 1], 2, 0.8]],
           "line-opacity": ["interpolate", ["linear"], ["zoom"], 5, 1, 9, 0.3] } },
-        { id: "countries", type: "fill", source: "countries", filter: ["==", ["get", "has"], 1], paint: { "fill-color": "#ffd27a", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 1, 0.4, 3, 0.25, 4.5, 0.04, 6, 0] } },
+        { id: "countries", type: "fill", source: "countries", filter: ["==", ["get", "has"], 1], paint: {
+          "fill-color": ["match", ["coalesce", ["feature-state", "w"], -1], ...UNUSUAL.flatMap(([, c], i) => [i, c]), "#ffd27a"],   // this month against normal
+          "fill-opacity": ["interpolate", ["linear"], ["zoom"], 1, 0.6, 3, 0.4, 4.5, 0.06, 6, 0] } },
         { id: "selected", type: "line", source: "outline", paint: { "line-color": "#ffd27a", "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.5, 6, 2.5, 12, 3.5], "line-opacity": ["interpolate", ["linear"], ["zoom"], 6, 1, 10, 0.5] } },
         { id: "area", type: "line", source: "area", paint: { "line-color": "#fbfcf8", "line-width": 2, "line-dasharray": [3, 2] } },
         { id: "names", type: "raster", source: "names" },
@@ -627,6 +662,7 @@ async function makeMap() {
   $("map-wait")?.remove();
   map.getContainer().querySelector(".maplibregl-ctrl-attrib")?.classList.remove("maplibregl-compact-show");   // credits fold to an (i) until tapped
   state.mapReady = true;
+  paintWorld();
 }
 function hitAt(point, layers = ["dots", "cells", "countries"]) {
   const map = state.map, live = layers.filter(l => map.getLayer(l) && map.getLayoutProperty(l, "visibility") !== "none");
@@ -638,7 +674,7 @@ function onMapClick(gl, e) {
   if (!f) return;
   const p = f.properties;
   if (f.layer.id === "countries") {
-    if (p.id !== state.d.id) { $("place").value = p.id; load(p.id, { fly: true }); }
+    if (p.id !== state.d.id) openPlace(p.id);
     else state.map.fitBounds(countryBounds(state.d), { padding: 24, duration: calm() ? 0 : 1200 });
     return;
   }
@@ -807,7 +843,7 @@ function drawMethod(d) {
   const f = d.factor, t = d.test, pct = v => (v > 0 ? "+" : "") + v + "%";
   const drift = Object.entries(d.drift), list = key => drift.map(([y, o]) => `${pct(o[key])} in ${y}`).join(", ");
   const name = h("span", { text: d.name }).innerHTML, spot = d.spot || 300;
-  const close = (a, b) => (Math.abs(a - b) < 1 ? ", about the same here: the monthly factors help little in this place" : "");   // say it when the two methods tie
+  const close = (a, b) => (a >= b + 1 ? ", better here: in this place the monthly factors do not help" : Math.abs(a - b) < 1 ? ", about the same here: the monthly factors help little in this place" : "");   // say it when the two methods tie or the fixed one wins
   $("method").innerHTML = `
     <p>NASA has watched fires with two kinds of sensor. MODIS, on the Terra and Aqua satellites, since 2000, with 1 km pixels. VIIRS, on Suomi NPP and then NOAA-20, since 2012, with 375 m pixels. VIIRS sees smaller fires, so it reports far more detections for the same burning. Until that gap is closed, the two cannot be read as one record.</p>
     <ul class="figures">
@@ -836,7 +872,7 @@ function drawMethod(d) {
     <h3>Sources</h3>
     <ul>
       <li><a href="https://firms.modaps.eosdis.nasa.gov/country/">NASA FIRMS yearly country files</a>, science-quality MODIS Collection 6.1 and VIIRS 375 m active fire detections. ${fmt(d.rows_read.modis + d.rows_read.snpp + d.rows_read.n20)} rows read for ${name}.</li>
-      ${ym(d, d.joined.length - 1).y > 2025 ? `<li><a href="https://firms.modaps.eosdis.nasa.gov/api/area/">NASA FIRMS area API</a>, NOAA-20 VIIRS for ${ym(d, d.joined.length - 1).y}: science-quality where NASA has it${d.provisional_from ? `, near-real-time from ${FULL[+d.provisional_from.slice(5) - 1]} ${d.provisional_from.slice(0, 4)} (provisional)` : ""}. A detection counts for ${name} when it falls inside its <a href="https://www.naturalearthdata.com/">Natural Earth</a> border; on eight past months this matched NASA's own country files to within 1.4%.</li>` : ""}
+      ${ym(d, d.joined.length - 1).y > 2025 ? `<li><a href="https://firms.modaps.eosdis.nasa.gov/api/area/">NASA FIRMS area API</a>, NOAA-20 VIIRS for ${ym(d, d.joined.length - 1).y}: science-quality where NASA has it${d.provisional_from ? `, near-real-time from ${FULL[+d.provisional_from.slice(5) - 1]} ${d.provisional_from.slice(0, 4)} (provisional)` : ""}. A detection counts for ${name} when it falls inside its <a href="https://www.naturalearthdata.com/">Natural Earth</a> border; on eight past months this matched NASA's own country files to within 1.4%. Where NASA's files draw a country differently (some coasts, islands and old borders), a detection within about 1 km of one NASA placed in it before also counts.</li>` : ""}
       <li><a href="https://www.earthdata.nasa.gov/news/blog/transitioning-from-suomi-npp-viirs-omps-what-firms-users-need-know">NASA FIRMS, October 2026</a>: the end of Suomi NPP and the move to NOAA-20 and NOAA-21.</li>
       <li><a href="https://www.earthdata.nasa.gov/data/alerts-outages/transition-from-modis-viirs">NASA Earthdata, May 2025</a>: Terra and Aqua shut down from late 2026 and are drifting.</li>
       <li><a href="https://essd.copernicus.org/articles/18/7535/2026/">Chen et al. 2026</a>: region-specific scaling between VIIRS and MODIS fire records, the published method closest to ours.</li>
@@ -902,7 +938,16 @@ async function load(id, { fly = false, area = null, view = null } = {}) {
 }
 async function start() {
   const places = (await window.firstRecord?.index) || await getJSON("data/index.json"), select = $("place"), want = readHash();
+  state.places = places;
   select.replaceChildren(...places.map(p => h("option", { value: p.id, text: p.name })));
+  drawWorld();
+  const find = $("find"), pick = () => {   // a typed name, in any of the three languages
+    const v = find.value.trim().toLowerCase(), p = v && places.find(p => [p.name, nameOf(p.id), ...["si", "ta"].map(l => T[l].names?.[p.id])].some(n => n?.toLowerCase() === v));
+    if (p && openPlace(p.id)) { find.value = ""; find.blur(); }
+  };
+  find.addEventListener("input", pick);
+  find.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); const v = find.value.trim().toLowerCase(), p = v && places.find(p => nameOf(p.id).toLowerCase().startsWith(v)); if (p && openPlace(p.id)) { find.value = ""; find.blur(); } } });
+  $("world-list").addEventListener("click", e => { const a = e.target.closest("a[data-id]"); if (a) { e.preventDefault(); openPlace(a.dataset.id); scrollTo({ top: 0, behavior: calm() ? "auto" : "smooth" }); } });
   select.value = places.some(p => p.id === want.id) ? want.id : places.some(p => p.id === "Sri_Lanka") ? "Sri_Lanka" : places[0].id;
   for (const k of ["layer", "when", "view", "strip", "lang"]) if (want[k]) state[k] = want[k];
   setRadio("layer", state.layer); setRadio("when", state.when); setRadio("view", state.view); setRadio("strip", state.strip); setRadio("lang", state.lang);
@@ -913,7 +958,7 @@ async function start() {
   $("strip-view").addEventListener("change", e => { state.strip = e.target.value; drawStrip(state.d, state.rec); writeHash(); });
   $("layer").addEventListener("change", e => { state.layer = e.target.value; drawCells(); writeHash(); });
   $("when").addEventListener("change", e => { state.when = e.target.value; drawFires(); writeHash(); });
-  $("lang").addEventListener("change", e => { state.lang = e.target.value; applyLang(); render(); drawSeam(state.d); drawCells(); writeHash(); });
+  $("lang").addEventListener("change", e => { state.lang = e.target.value; applyLang(); render(); drawSeam(state.d); drawCells(); drawWorld(); writeHash(); });
   $("use-view").addEventListener("click", () => {
     if (!state.mapReady) return;
     if (state.map.getZoom() < 4) { $("map-note").textContent = words().zoomIn; return; }

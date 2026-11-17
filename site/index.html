@@ -70,6 +70,11 @@ STORY: is this month normal, is this season ahead, where does it burn, why the o
       </fieldset>
     </div>
     <p class="note" id="map-note">Spin the globe, scroll or pinch to zoom, and tap a country to open its record.</p>
+    <div class="world-tools">
+      <label class="find"><span data-t="find">Find a place</span><input id="find" type="search" list="place-list" autocomplete="off" enterkeyhint="go" placeholder="Type a country"></label>
+      <datalist id="place-list"></datalist>
+      <div class="legend" id="world-key"></div>
+    </div>
     <div id="map" class="map" role="region" aria-label="Fire map"><p class="map-wait" id="map-wait">Loading the globe…</p></div>
     <div class="map-under">
       <div class="legend" id="map-key"></div>
@@ -85,6 +90,7 @@ STORY: is this month normal, is this season ahead, where does it burn, why the o
       <button id="clear-view" type="button" class="quiet" hidden data-t="clear-view">Back to the whole country</button>
       <button id="share" type="button" class="quiet" data-t="share">Copy a link to this view</button>
     </div>
+    <details class="world-list"><summary data-t="worldList">Every country this month</summary><div id="world-list"></div></details>
   </section>
 
   <section>

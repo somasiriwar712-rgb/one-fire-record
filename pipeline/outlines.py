@@ -9,6 +9,7 @@ Writes: ../site/data/countries.json, a light GeoJSON for the globe and for tappi
 """
 import json
 import os
+from collections import defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BORDERS = os.path.join(HERE, "..", "..", "resources", "data", "borders", "ne_10m_admin_0_countries.geojson")
@@ -46,9 +47,31 @@ def area(ring):
     return abs(sum(x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(ring, ring[1:]))) / 2
 
 
-def shape(geo, tol, min_ring, places):
+with open(os.path.join(HERE, "border-names.json")) as _fh:
+    NAMES = json.load(_fh)   # FIRMS file name -> Natural Earth ADMIN name, or [ADMIN name, [west, south, east, north]] for an overseas part
+
+
+def borders(features):
+    """FIRMS id -> (display name, polygons) for every Natural Earth country, with overseas parts split off by their box."""
+    parts, to_id, out = defaultdict(list), {v: k for k, v in NAMES.items() if isinstance(v, str)}, {}
+    for cid, v in NAMES.items():
+        if isinstance(v, list):
+            parts[v[0]].append((cid, v[1]))
+    for f in features:
+        name, geo = f["properties"]["ADMIN"], f["geometry"]
+        polys = geo["coordinates"] if geo["type"] == "MultiPolygon" else [geo["coordinates"]]
+        for cid, (w, s, e, n) in parts[name]:
+            mine = [p for p in polys if w <= p[0][0][0] <= e and s <= p[0][0][1] <= n]
+            polys = [p for p in polys if not (w <= p[0][0][0] <= e and s <= p[0][0][1] <= n)]
+            if mine:
+                out[cid] = (cid.replace("_", " "), mine)
+        out[to_id.get(name, name.replace(" ", "_"))] = (name, polys)
+    return out
+
+
+def shape(polygons, tol, min_ring, places):
     polys = []
-    for poly in geo["coordinates"] if geo["type"] == "MultiPolygon" else [geo["coordinates"]]:
+    for poly in polygons:
         outer = simplify(poly[0], tol)
         if len(outer) < 4 or area(outer) < min_ring:
             continue
@@ -58,28 +81,25 @@ def shape(geo, tol, min_ring, places):
 
 
 def main():
-    with open(os.path.join(HERE, "border-names.json")) as fh:
-        to_id = {v: k for k, v in json.load(fh).items()}   # Natural Earth ADMIN name -> FIRMS file name
     with open(os.path.join(SITE, "index.json")) as fh:
-        have = {p["id"] for p in json.load(fh)}
+        shown = {p["id"]: p["name"] for p in json.load(fh)}   # the globe uses the same names as the place list
+    have = set(shown)
     with open(BORDERS) as fh:
         world = json.load(fh)
     out = []
-    for f in world["features"]:
-        name = f["properties"]["ADMIN"]
-        cid = to_id.get(name, name.replace(" ", "_"))
-        polys = shape(f["geometry"], TOLERANCE, MIN_RING, 2)
+    for cid, (name, geo) in borders(world["features"]).items():
+        polys = shape(geo, TOLERANCE, MIN_RING, 2)
         if not polys and cid in have:   # small islands with a fire record must stay tappable
-            polys = shape(f["geometry"], FINE[0], 0, 3)
+            polys = shape(geo, FINE[0], 0, 3)
         if not polys:
             continue
         if cid in have:
             with open(os.path.join(SITE, f"{cid}.outline.json"), "w") as fh:
-                json.dump({"type": "Feature", "properties": {"id": cid}, "geometry": {"type": "MultiPolygon", "coordinates": shape(f["geometry"], *FINE, 3)}}, fh, separators=(",", ":"))
-        out.append({"type": "Feature", "properties": {"id": cid, "name": name, "has": int(cid in have)},
+                json.dump({"type": "Feature", "properties": {"id": cid}, "geometry": {"type": "MultiPolygon", "coordinates": shape(geo, *FINE, 3)}}, fh, separators=(",", ":"))
+        out.append({"type": "Feature", "properties": {"id": cid, "name": shown.get(cid, name), "has": int(cid in have)},
                     "geometry": {"type": "MultiPolygon", "coordinates": polys}})
     with open(os.path.join(SITE, "countries.json"), "w") as fh:
-        json.dump({"type": "FeatureCollection", "features": out}, fh, separators=(",", ":"))
+        json.dump({"type": "FeatureCollection", "features": out}, fh, separators=(",", ":"), ensure_ascii=False)
     missing = have - {f["properties"]["id"] for f in out}
     assert not missing, f"no outline for {missing}"
     print(f"{len(out)} countries, {sum(f['properties']['has'] for f in out)} with a record, {os.path.getsize(os.path.join(SITE, 'countries.json')) // 1024} KB")

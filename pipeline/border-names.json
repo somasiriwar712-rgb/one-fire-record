@@ -1,6 +1,67 @@
-{"Bahamas": "The Bahamas", "Brunei_Darussalam": "Brunei", "Cape_Verde": "Cabo Verde", "Cote_d_Ivoire": "Ivory Coast",
- "Curacao": "Curaçao", "Czech_Republic": "Czechia", "Dem_Rep_Korea": "North Korea", "Hong_Kong": "Hong Kong S.A.R.",
- "Lao_PDR": "Laos", "Macedonia_Former_Yugoslav_Republic_of": "North Macedonia", "Republic_of_Congo": "Republic of the Congo",
- "Republic_of_Korea": "South Korea", "Russian_Federation": "Russia", "Sao_Tome_and_Principe": "São Tomé and Principe",
- "Serbia": "Republic of Serbia", "Swaziland": "eSwatini", "Tanzania": "United Republic of Tanzania", "The_Gambia": "Gambia",
- "Timor-Leste": "East Timor", "United_States": "United States of America"}
+{
+"Bahamas": "The Bahamas",
+"Brunei_Darussalam": "Brunei",
+"Cape_Verde": "Cabo Verde",
+"Cote_d_Ivoire": "Ivory Coast",
+"Curacao": "Curaçao",
+"Czech_Republic": "Czechia",
+"Dem_Rep_Korea": "North Korea",
+"Hong_Kong": "Hong Kong S.A.R.",
+"Lao_PDR": "Laos",
+"Macedonia_Former_Yugoslav_Republic_of": "North Macedonia",
+"Republic_of_Congo": "Republic of the Congo",
+"Republic_of_Korea": "South Korea",
+"Russian_Federation": "Russia",
+"Sao_Tome_and_Principe": "São Tomé and Principe",
+"Serbia": "Republic of Serbia",
+"Swaziland": "eSwatini",
+"Tanzania": "United Republic of Tanzania",
+"The_Gambia": "Gambia",
+"Timor-Leste": "East Timor",
+"United_States": "United States of America",
+"French_Guiana": [
+"France",
+[
+-55,
+1.5,
+-51,
+6.5
+]
+],
+"Guadeloupe": [
+"France",
+[
+-62,
+15.7,
+-60.9,
+16.6
+]
+],
+"Martinique": [
+"France",
+[
+-61.4,
+14.3,
+-60.7,
+15
+]
+],
+"Mayotte": [
+"France",
+[
+44.8,
+-13.2,
+45.4,
+-12.5
+]
+],
+"Reunion": [
+"France",
+[
+55,
+-21.5,
+56,
+-20.8
+]
+]
+}
